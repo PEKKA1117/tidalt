@@ -158,14 +158,22 @@ type Player struct {
 	samplesPlayed uint64
 	paused        uint32 // 0 = playing, 1 = paused
 	volumeBits    uint64 // float64 stored via math.Float64bits; range 0.0–1.0
+	// deviceGen counts device selections. A running playback loop compares it
+	// against the generation it started with, which is how a change reaches
+	// audio that is already playing. Without it the selection would sit in
+	// deviceOverride until the next Play(), and a queue advancing gaplessly
+	// never reaches one — so picking a device would appear to do nothing.
+	deviceGen uint64
 }
 
-// SetDevice sets the ALSA hw device to use for playback. Pass "" to revert to
-// auto-detection from the known-DAC list.
+// SetDevice sets the ALSA device to use for playback. Pass "" to revert to
+// auto-detection from the known-DAC list. A track already playing moves to the
+// new device; it does not wait for the next one.
 func (p *Player) SetDevice(hwName string) {
 	p.mu.Lock()
 	p.deviceOverride = hwName
 	p.mu.Unlock()
+	atomic.AddUint64(&p.deviceGen, 1)
 }
 
 // getDevice returns the configured device override or falls back to auto-detection.
@@ -806,6 +814,10 @@ func (p *Player) playbackLoop(ctx context.Context, url, device string, releaseRe
 
 	bps := ah.bytesPerSample
 
+	// The device generation this loop is playing on. A mismatch means the user
+	// picked a different output while this track was already running.
+	deviceGen := atomic.LoadUint64(&p.deviceGen)
+
 	// streamLoop runs the decode→ALSA pipeline for the current HTTP stream.
 	// Returns (seekTarget, true, false) if a seek was requested,
 	// (0, false, false) when the stream ends naturally or the context is
@@ -916,14 +928,39 @@ func (p *Player) playbackLoop(ctx context.Context, url, device string, releaseRe
 			}
 		}()
 
-		returnSeek := func(target uint64) (uint64, bool, bool) {
+		// stopDecoding shuts the decode goroutine down and drains its channel.
+		// A seek follows this by resetting the PCM it keeps; a device switch
+		// follows it by closing the PCM instead, so the teardown is shared but
+		// what happens to the handle is not.
+		stopDecoding := func() {
 			close(stopDecode)
 			// Drain so the decode goroutine can unblock and exit.
 			for range pcmCh {
 			}
+		}
+
+		returnSeek := func(target uint64) (uint64, bool, bool) {
+			stopDecoding()
 			C.snd_pcm_drop(ah.pcm)
 			C.snd_pcm_prepare(ah.pcm)
 			return target, true, false
+		}
+
+		// switchDevice hands the stream to newDevice, restarting it from the
+		// current position. The ALSA handle is closed and left closed: the
+		// outer seek loop reopens it, which is also what reserves the new
+		// device. Releasing before opening matters — the new output may be the
+		// sound server that needs this card back.
+		switchDevice := func(newDevice string) (uint64, bool, bool) {
+			logger.L.Info("switching output device", "from", device, "to", newDevice)
+			pos := atomic.LoadUint64(&p.samplesPlayed)
+			stopDecoding()
+			C.snd_pcm_drop(ah.pcm)
+			closeALSA(ah)
+			releaseReservation()
+			releaseReservation = func() {}
+			device = newDevice
+			return pos, true, false
 		}
 
 		for pcm := range pcmCh {
@@ -946,6 +983,25 @@ func (p *Player) playbackLoop(ctx context.Context, url, device string, releaseRe
 					}
 					return 0, false, false
 				default:
+				}
+
+				// Check for an output-device change and move the stream now,
+				// rather than leaving the selection to take effect at some
+				// unpredictable later point.
+				if gen := atomic.LoadUint64(&p.deviceGen); gen != deviceGen {
+					deviceGen = gen
+					newDevice, derr := p.getDevice()
+					switch {
+					case derr != nil:
+						logger.L.Error("device switch: cannot resolve the selected device, staying on the current one",
+							"device", device, "err", derr)
+					case newDevice == device:
+						// Re-selecting the device already in use: nothing to do,
+						// and tearing the stream down would be an audible gap
+						// for no reason.
+					default:
+						return switchDevice(newDevice)
+					}
 				}
 
 				// Check pause: release the ALSA device so PipeWire / other
@@ -1154,6 +1210,29 @@ func (p *Player) playbackLoop(ctx context.Context, url, device string, releaseRe
 	for {
 		seekTarget, doSeek, aborted := streamLoop(0)
 		for doSeek {
+			// A device switch returns a seek with the ALSA handle closed, so
+			// the stream can restart on the newly selected output. Reopen it
+			// first: streamLoop writes to ah unconditionally, and reacquireALSA
+			// closes over the device variable the switch just reassigned, so it
+			// reserves and opens the new one. An ordinary seek keeps its handle
+			// open and skips this.
+			if ah == nil || ah.pcm == nil {
+				newAH, newRel, raErr := reacquireALSA()
+				if raErr != nil {
+					logger.L.Error("could not open the selected output device", "device", device, "err", raErr)
+					// Park in the paused state and tell the UI, so it stops
+					// rendering a ticking progress bar over silence.
+					atomic.StoreUint32(&p.paused, 1)
+					p.notifyPaused(raErr)
+					_ = resp.Body.Close()
+					return false
+				}
+				releaseReservation()
+				ah = newAH
+				releaseReservation = newRel
+				bps = ah.bytesPerSample
+			}
+
 			// Re-open the HTTP stream and skip to the seek target.
 			// samplesPlayed is NOT reset here — streamLoop sets it after skipping,
 			// so GetPosition() never briefly returns 0 between seeks.

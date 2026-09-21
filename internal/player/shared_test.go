@@ -3,6 +3,7 @@ package player
 import (
 	"context"
 	"os"
+	"sync/atomic"
 	"testing"
 )
 
@@ -200,4 +201,32 @@ func TestExclusiveHWStillClaimsTheCard(t *testing.T) {
 	}
 	t.Logf("exclusive as expected: device=%q rate=%d bytes/sample=%d period=%d buffer=%d; second open refused: %v",
 		first.device, first.rate, first.bytesPerSample, first.periodSize, first.bufferSize, err)
+}
+
+// A device selection has to reach a track that is already playing. The counter
+// is how it gets there: the playback loop compares it against the generation it
+// started on, so every SetDevice must move it, including one that re-selects
+// the device already in use — the loop, not SetDevice, decides that is a no-op.
+func TestSetDeviceBumpsTheGeneration(t *testing.T) {
+	p := NewPlayer()
+	start := atomic.LoadUint64(&p.deviceGen)
+
+	p.SetDevice(sharedDevice)
+	afterFirst := atomic.LoadUint64(&p.deviceGen)
+	if afterFirst == start {
+		t.Fatal("SetDevice did not bump deviceGen; a playing track would never notice the change")
+	}
+	if got, err := p.getDevice(); err != nil || got != sharedDevice {
+		t.Fatalf("getDevice() = (%q, %v), want (%q, nil)", got, err, sharedDevice)
+	}
+
+	p.SetDevice(sharedDevice)
+	if atomic.LoadUint64(&p.deviceGen) == afterFirst {
+		t.Error("re-selecting the same device must still bump deviceGen")
+	}
+
+	p.SetDevice(testHWDevice)
+	if got, _ := p.getDevice(); got != testHWDevice {
+		t.Errorf("getDevice() = %q, want %q", got, testHWDevice)
+	}
 }

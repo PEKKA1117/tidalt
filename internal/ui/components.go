@@ -304,21 +304,51 @@ func (m *Model) renderNowPlayingBar(t Theme, w int) string {
 // "hw:"/"plughw:" prefix already identifies it. When the plughw: fallback
 // engaged, the device actually opened is shown instead of the requested one,
 // so the readout never claims a direct hw: path that isn't in use.
+//
+// While a switch is in flight the readout shows "old → new". Moving the stream
+// means tearing down one device and opening another, which is not instant —
+// reserving a card can take the best part of a second — and without this the
+// bar would keep naming the old device, reading exactly like a selection that
+// did nothing.
 func (m *Model) nowBarStatus(t Theme) string {
 	vol := fmt.Sprintf("vol %.0f%%", m.volume)
 	parts := []string{vol}
 	if m.shuffleMode != ShuffleOff {
 		parts = append(parts, "shuffle "+m.shuffleMode.String())
 	}
-	dev := m.currentDevice
-	if m.activeDevice != "" {
-		dev = m.activeDevice
-	}
-	if dev == "" {
-		dev = "auto"
-	}
-	parts = append(parts, dev)
+	parts = append(parts, m.deviceReadout())
 	return t.RowDim.Render(strings.Join(parts, "  ·  "))
+}
+
+// deviceReadout names the output device, and names both when the player is
+// moving between them.
+func (m *Model) deviceReadout() string {
+	active := m.activeDevice
+	if active == "" {
+		// Nothing has been opened yet, so the selection is all there is to
+		// report; there is no switch to show and nothing to disagree with.
+		if m.currentDevice == "" {
+			return "auto"
+		}
+		return m.currentDevice
+	}
+	if m.currentDevice == "" || m.currentDevice == active {
+		return active
+	}
+	// The plughw: fallback also makes these two disagree, permanently — the
+	// requested hw: device is never reached. Showing an arrow there would
+	// promise a switch that is not coming, so it is only a switch while the
+	// player is actually running.
+	if !m.isPlaying || isPlugFallbackOf(m.currentDevice, active) {
+		return active
+	}
+	return active + " → " + m.currentDevice
+}
+
+// isPlugFallbackOf reports whether active is the plug-layer stand-in that the
+// player substituted for the requested device, rather than a different device.
+func isPlugFallbackOf(requested, active string) bool {
+	return active == "plughw:"+strings.TrimPrefix(requested, "hw:")
 }
 
 // miniEQ renders a tiny 4-bar equalizer indicator from the live bar heights.
