@@ -46,6 +46,14 @@ TIDALT_ALSA_SMOKE=1 go test ./internal/player/ -run SharedPCMIsNotExclusive -v
 TIDALT_ALSA_SMOKE_HW=hw:0,0 go test ./internal/player/ -run ExclusiveHWStillClaimsTheCard -v
 ```
 
+```bash
+# A device picked mid-track moves that track, end to end through the real
+# playback loop. Serves a generated FLAC over localhost, so no Tidal session is
+# needed; plays at volume 0, so it makes no sound.
+TIDALT_ALSA_SMOKE=1 TIDALT_ALSA_SMOKE_HW=hw:0,0 \
+  go test ./internal/player/ -run DeviceSwitchMovesAPlayingStream -v
+```
+
 Between them they cover what the unit tests cannot: that `default` really does
 allow concurrent opens, that the buffer widens to 8 periods there and stays at 4
 on `hw:`, and that the explicit `set_rate_resample(..., 0)` on `hw:` did not

@@ -213,7 +213,21 @@ The trade-offs are explicit:
 
 Shared mode keeps the gapless machinery — the end-of-track `snd_pcm_drain` and the same-format transition that avoids reopening the device both work through the plug layer. What it gives up is the bit-perfect guarantee, and the now-playing bar says so: the quality badge is marked `(shared)`, distinct from the `(converted)` marker used when a device refuses the format and is downgraded without being asked.
 
-The choice is persisted like any other device selection.
+The choice is persisted like any other device selection, and it takes effect
+immediately: a track already playing moves to the new device and continues from
+where it was. While the handover is in progress the now-playing bar shows both
+devices, e.g. `hw:4,0 → default`.
+
+One thing to know when checking your mixer: **tidalt only appears in
+`pavucontrol` while a track is actually playing.** Pausing closes the device so
+other applications can have it, which destroys the stream — so a paused tidalt
+is absent from the list entirely. Look for it under the name PipeWire gives ALSA
+clients:
+
+```
+$ pactl list short sink-inputs
+854   674   853   PipeWire   s32le 2ch 44100Hz     # PipeWire ALSA [tidalt]
+```
 
 ### Fixed-format audio interfaces
 
