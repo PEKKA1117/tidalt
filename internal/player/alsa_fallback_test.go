@@ -12,7 +12,7 @@ import (
 // that as hw:. Treating it as a refusal would permanently downgrade a DAC that
 // is perfectly capable of bit-perfect output.
 func TestFormatRefusalIsDistinguishable(t *testing.T) {
-	refusal := fmt.Errorf("configure_hw_pcm(hw:2,0): Invalid argument: %w", errFormatRefused)
+	refusal := fmt.Errorf("configure_hw_pcm(%s): Invalid argument: %w", testHWDevice, errFormatRefused)
 	if !errors.Is(refusal, errFormatRefused) {
 		t.Error("a configure_hw_pcm failure must report as a format refusal")
 	}
@@ -29,8 +29,8 @@ func TestFormatRefusalIsDistinguishable(t *testing.T) {
 // not re-pay a known-failing hw: open plus its reservation stall.
 func TestPlugFallbackIsMemoised(t *testing.T) {
 	const (
-		hwDevice   = "hw:2,0"
-		plugDevice = "plughw:2,0"
+		hwDevice   = testHWDevice
+		plugDevice = testPlugDevice
 	)
 	p := &Player{}
 
@@ -60,9 +60,9 @@ func TestAudioPathDefaultsToBitPerfect(t *testing.T) {
 		t.Errorf("AudioPath() = (%q, %v), want (\"\", true)", device, bitPerfect)
 	}
 
-	p.activeDevice = "plughw:2,0"
+	p.activeDevice = testPlugDevice
 	p.bitPerfect = false
-	if device, bitPerfect = p.AudioPath(); device != "plughw:2,0" || bitPerfect {
-		t.Errorf("AudioPath() = (%q, %v), want (\"plughw:2,0\", false)", device, bitPerfect)
+	if device, bitPerfect = p.AudioPath(); device != testPlugDevice || bitPerfect {
+		t.Errorf("AudioPath() = (%q, %v), want (%q, false)", device, bitPerfect, testPlugDevice)
 	}
 }

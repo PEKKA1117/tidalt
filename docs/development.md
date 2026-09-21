@@ -30,6 +30,27 @@ make lint-c     # clang-tidy over the C sources
 make hooks      # activate the tracked git hooks for this clone
 ```
 
+## ALSA smoke tests
+
+Two tests in `internal/player` open real ALSA devices. They are skipped unless
+their environment variable is set, because they need working audio hardware and
+one of them takes a card away from the sound server:
+
+```bash
+# Shared mode is genuinely non-exclusive: opens `default` twice at once.
+TIDALT_ALSA_SMOKE=1 go test ./internal/player/ -run SharedPCMIsNotExclusive -v
+
+# Exclusive mode still claims the card and still negotiates the exact rate.
+# Name an IDLE card — this open takes it away from PipeWire for the duration.
+# /proc/asound/card*/pcm*p/sub0/status shows which cards are RUNNING.
+TIDALT_ALSA_SMOKE_HW=hw:0,0 go test ./internal/player/ -run ExclusiveHWStillClaimsTheCard -v
+```
+
+Between them they cover what the unit tests cannot: that `default` really does
+allow concurrent opens, that the buffer widens to 8 periods there and stays at 4
+on `hw:`, and that the explicit `set_rate_resample(..., 0)` on `hw:` did not
+break the exclusive path.
+
 ## Git hooks
 
 The repository tracks a pre-commit hook under `.githooks/`. Activate it once per

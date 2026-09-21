@@ -4,3 +4,6 @@ tidal-cache.db
 tidalt-linux-*
 /debian/
 dist/
+
+# OMC session state
+.omc/
