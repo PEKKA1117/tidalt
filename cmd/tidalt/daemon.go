@@ -19,12 +19,20 @@ Description=tidalt — Tidal HiFi music player daemon
 Documentation=https://github.com/Benehiko/tidalt
 After=graphical-session.target
 PartOf=graphical-session.target
+# Back-stop for any failure that does restart: give up after 5 attempts in 5
+# minutes instead of retrying forever.
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=simple
 ExecStart={{.Exec}} daemon
 Restart=on-failure
 RestartSec=5s
+# Exiting because another instance already holds the MPRIS name is a refusal,
+# not a fault: restarting cannot clear it while that instance lives, and the
+# retries only fill the journal.
+RestartPreventExitStatus=3
 
 [Install]
 WantedBy=graphical-session.target
@@ -41,7 +49,9 @@ func runDaemon() error {
 
 	mprisServer, mprisErr := mpris.Start(ctx)
 	if errors.Is(mprisErr, mpris.ErrAlreadyRunning) {
-		return errors.New("a tidalt instance is already running")
+		// Wrap rather than replace: main matches on the sentinel to exit with
+		// exitAlreadyRunning, which is what stops systemd restarting us.
+		return fmt.Errorf("a tidalt instance is already running: %w", mprisErr)
 	}
 	if mprisErr != nil {
 		fmt.Fprintf(os.Stderr, "MPRIS unavailable: %v\n", mprisErr)

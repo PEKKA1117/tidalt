@@ -1,0 +1,83 @@
+# Maintainer: PEKKA1117 <https://github.com/PEKKA1117>
+# Upstream: Benehiko <https://github.com/Benehiko/tidalt>
+#
+# Builds the fork from git rather than a release tarball, because the point of
+# the fork is the patches that are not in any upstream release yet.
+#
+# This deliberately keeps pkgname=tidalt, so installing it REPLACES the official
+# package. That also means a later `paru -Syu` will pull the official release
+# back over it once upstream's version sorts higher. To stop that:
+#
+#     IgnorePkg = tidalt        # in /etc/pacman.conf
+#
+# Build and install:
+#
+#     cd packaging/arch-fork && makepkg -si
+#
+# By default it builds whatever is pushed to the fork. To build a local
+# checkout instead — including work that is committed but not pushed:
+#
+#     TIDALT_FORK_URL="file://$PWD/../.." makepkg -si
+#
+# Uncommitted changes are never picked up: makepkg clones, it does not copy.
+
+pkgname=tidalt
+_url="${TIDALT_FORK_URL:-https://github.com/PEKKA1117/tidalt.git}"
+_branch="${TIDALT_FORK_BRANCH:-feat/shared-output-mode}"
+pkgver=4.0.3.r4.gf3559d6
+pkgrel=1
+pkgdesc="Tidal music player for Linux — bit-perfect FLAC via ALSA, shared output mode, MPRIS2, daemon mode (PEKKA1117 fork)"
+arch=('x86_64' 'aarch64')
+url="https://github.com/PEKKA1117/tidalt"
+license=('Apache-2.0')
+depends=('alsa-lib' 'ffmpeg' 'dbus')
+makedepends=('go>=1.26' 'git')
+optdepends=(
+    'playerctl: control playback from the command line'
+    'kdeconnect: control playback from a phone (MPRIS2 bridge)'
+    'pavucontrol: see and route the stream that shared output mode creates'
+)
+source=("$pkgname::git+$_url#branch=$_branch")
+b2sums=('SKIP')
+
+pkgver() {
+    cd "$srcdir/$pkgname"
+    # v4.0.3-4-gf3559d6 -> 4.0.3.r4.gf3559d6, which sorts above the 4.0.3 tag
+    # it descends from.
+    git describe --long --tags | sed 's/^v//;s/\([^-]*-g\)/r\1/;s/-/./g'
+}
+
+build() {
+    cd "$srcdir/$pkgname"
+    export CGO_ENABLED=1
+    export CGO_CFLAGS="${CFLAGS}"
+    export CGO_LDFLAGS="${LDFLAGS}"
+    # -mod=vendor: the fork vendors its dependencies, so the build needs no
+    # network. Upstream's PKGBUILD downloads them in prepare() instead.
+    go build \
+        -trimpath \
+        -buildmode=pie \
+        -mod=vendor \
+        -ldflags "-linkmode=external -X main.version=v$pkgver" \
+        -o tidalt \
+        ./cmd/tidalt
+}
+
+check() {
+    cd "$srcdir/$pkgname"
+    # The ALSA smoke tests open real hardware and skip unless their environment
+    # variables are set, so this stays safe in a clean chroot.
+    go test -mod=vendor ./...
+}
+
+package() {
+    cd "$srcdir/$pkgname"
+
+    install -Dm755 tidalt "$pkgdir/usr/bin/tidalt"
+
+    # Desktop file for the tidal:// URL handler; run 'tidalt setup' to activate.
+    install -Dm644 cmd/tidalt/tidalt.desktop \
+        "$pkgdir/usr/share/applications/tidalt.desktop"
+
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/Apache-2.0"
+}

@@ -97,11 +97,23 @@ func loadSession(ctx context.Context) (*tidal.Client, *store.SecretsStore, tidal
 	return client, vault, session
 }
 
+// exitAlreadyRunning is the status returned when another tidalt instance holds
+// the MPRIS name. It is distinct from the generic failure status so the systemd
+// unit can refuse to restart on it: a second daemon is not a fault that waiting
+// will clear, and retrying it forever only fills the journal. See
+// RestartPreventExitStatus in serviceTemplate.
+const exitAlreadyRunning = 3
+
 func main() {
-	if err := dispatch(); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
+	err := dispatch()
+	if err == nil {
+		return
 	}
+	fmt.Fprintf(os.Stderr, "error: %v\n", err)
+	if errors.Is(err, mpris.ErrAlreadyRunning) {
+		os.Exit(exitAlreadyRunning)
+	}
+	os.Exit(1)
 }
 
 // dispatch routes the CLI subcommand and returns any error so main can exit

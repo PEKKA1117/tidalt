@@ -68,6 +68,14 @@ serves MPRIS2            shows TUI               (spawned by browser)
 
 ## Daemon mode
 
+> **One instance at a time.** `tidalt daemon` exits with status **3** when
+> another instance already holds the MPRIS name — a TUI session, or a second
+> daemon. The unit sets `RestartPreventExitStatus=3` so systemd does not retry
+> that: it is a refusal, not a fault, and waiting cannot clear it while the
+> other instance lives. Earlier units without this restarted every 5s forever,
+> which is how a journal ends up with a restart counter in the hundreds.
+> `StartLimitIntervalSec=300` / `StartLimitBurst=5` bound every other failure.
+
 ### Starting manually
 
 ```bash
