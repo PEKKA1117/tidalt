@@ -24,7 +24,7 @@
 pkgname=tidalt
 _url="${TIDALT_FORK_URL:-https://github.com/PEKKA1117/tidalt.git}"
 _branch="${TIDALT_FORK_BRANCH:-feat/shared-output-mode}"
-pkgver=4.0.3.r4.gf3559d6
+pkgver=4.0.3.r5.g9bed6a4
 pkgrel=1
 pkgdesc="Tidal music player for Linux — bit-perfect FLAC via ALSA, shared output mode, MPRIS2, daemon mode (PEKKA1117 fork)"
 arch=('x86_64' 'aarch64')
