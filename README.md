@@ -108,6 +108,7 @@ On first launch you will be prompted to log in via the Tidal OAuth2 device flow.
 - Song radio — build a queue of similar tracks for any song
 - Shuffle (Fisher-Yates pre-shuffle or random pick)
 - Bit-perfect FLAC playback via direct ALSA `hw:` — bypasses PipeWire/PulseAudio entirely (see [fixed-format devices](#fixed-format-audio-interfaces))
+- **Shared output mode** — pick `default` in the device selector to play through the system mixer instead of claiming the card, so other applications keep their audio (see [shared output mode](#shared-output-mode))
 - Auto-negotiates the best PCM format your DAC supports
 - Auto-advances through the queue; respects shuffle mode
 - Volume control and output device selection, both persisted between sessions
@@ -193,6 +194,26 @@ Auto-detection scans `/proc/asound/cards`. Any ALSA-visible device can be select
 | Hidizs S9 Pro Plus ("Martha") |       Yes        |
 | Focusrite Scarlett Solo      |       Yes        |
 | Any ALSA-visible device      | Manual (`d` key) |
+
+### Shared output mode
+
+Exclusive access is the point of the `hw:` path, but it is not always what you want: while a track plays, nothing else on the machine can use that card.
+
+Selecting **`default`** in the device picker (`d`) switches to shared output. tidalt then plays through whatever ALSA resolves `default` to — the PipeWire or PulseAudio plugin on a desktop, `dmix` on a bare ALSA box — and the sound server keeps ownership of the card. Browser, game, and notification audio all keep working.
+
+The trade-offs are explicit:
+
+| | Exclusive (`hw:`) | Shared (`default`) |
+| --- | --- | --- |
+| Other apps can play | No, while a track plays | Yes |
+| Resampling | None | Whatever the sound server does |
+| Bit-perfect | Yes | No |
+| ReserveDevice1 handshake | Yes | Skipped |
+| Gapless transitions | Yes | Yes |
+
+Shared mode keeps the gapless machinery — the end-of-track `snd_pcm_drain` and the same-format transition that avoids reopening the device both work through the plug layer. What it gives up is the bit-perfect guarantee, and the now-playing bar says so: the quality badge is marked `(shared)`, distinct from the `(converted)` marker used when a device refuses the format and is downgraded without being asked.
+
+The choice is persisted like any other device selection.
 
 ### Fixed-format audio interfaces
 

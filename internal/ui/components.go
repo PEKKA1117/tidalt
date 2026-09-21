@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/Benehiko/tidalt/v4/internal/player"
 	"github.com/Benehiko/tidalt/v4/internal/tidal"
 )
 
@@ -264,11 +265,18 @@ func (m *Model) renderNowPlayingBar(t Theme, w int) string {
 
 	badge := ""
 	if q := m.currentQuality.Label(); q != "" {
-		// When the plughw: fallback engaged, ALSA is resampling/remixing, so
-		// the granted tier no longer describes what reaches the DAC. Mark the
-		// badge rather than letting it assert untouched output.
+		// Whenever the signal reaches the DAC through ALSA's plug layer, the
+		// granted tier no longer describes what is actually played, so the
+		// badge must stop asserting untouched output. The two ways that
+		// happens read very differently to a user and are labelled apart:
+		// "(shared)" is the output mode they picked, "(converted)" is a device
+		// that refused the format and was downgraded behind their back.
 		if !m.bitPerfect {
-			q += " (converted)"
+			if player.IsSharedDevice(m.activeDevice) {
+				q += " (shared)"
+			} else {
+				q += " (converted)"
+			}
 		}
 		badge = t.RowFaint.Render(q)
 	}

@@ -32,9 +32,13 @@ type DeviceInfo struct {
 	HWName   string // ALSA device string, e.g. "hw:1,0"
 	CardName string // short name from brackets, e.g. "S9Pro"
 	LongName string // description after " - ", e.g. "HiDizs S9 Pro"
+	Shared   bool   // routes through the system mixer instead of claiming the card
 }
 
-// ListDevices returns all ALSA cards that have at least one playback PCM.
+// ListDevices returns all ALSA cards that have at least one playback PCM,
+// followed by the shared (non-exclusive) PCM. The shared entry is last so the
+// hardware devices keep the top of the picker and exclusive output stays the
+// default choice.
 func ListDevices() ([]DeviceInfo, error) {
 	cardData, err := os.ReadFile("/proc/asound/cards")
 	if err != nil {
@@ -88,9 +92,10 @@ func ListDevices() ([]DeviceInfo, error) {
 			HWName:   fmt.Sprintf("hw:%d,0", cardNum),
 			CardName: cardName,
 			LongName: longName,
+			Shared:   false,
 		})
 	}
-	return devices, nil
+	return append(devices, sharedDeviceInfo()), nil
 }
 
 type Player struct {
@@ -393,6 +398,25 @@ func reserveALSADevice(ctx context.Context, cardNum int) (release func(), err er
 	return releaseFunc, nil
 }
 
+// reserveUnlessShared claims the ALSA device reservation for an exclusive
+// device and does nothing for the shared PCM.
+//
+// Shared output is played *through* the sound server that the ReserveDevice1
+// handshake exists to push aside, so running the handshake there would tear
+// down the very thing rendering the audio. The shared PCM also has no card
+// number to parse: `default` is a name ALSA resolves through its config, and it
+// may well end up on a different card than any hw: string would name.
+func reserveUnlessShared(ctx context.Context, device string) (release func(), err error) {
+	if IsSharedDevice(device) {
+		return func() {}, nil
+	}
+	cardNum, err := parseCardNum(device)
+	if err != nil {
+		return nil, err
+	}
+	return reserveALSADevice(ctx, cardNum)
+}
+
 type alsaHandle struct {
 	pcm             *C.snd_pcm_t
 	device          string // ALSA device string actually opened (may differ from the requested one on plughw: fallback)
@@ -434,7 +458,10 @@ type alsaHandle struct {
 // never downgraded.
 func openALSA(ctx context.Context, device string, channels uint8, rate uint32, bits uint8) (*alsaHandle, error) {
 	handle, result, err := openALSARaw(ctx, device, channels, rate, bits)
-	bitPerfect := true
+	// A plug-layer device — the shared PCM, or a plughw: path memoised by an
+	// earlier downgrade — has already forfeited bit-perfect output, and has no
+	// further fallback to take.
+	bitPerfect := !isPlugDevice(device)
 	if err != nil && errors.Is(err, errFormatRefused) && strings.HasPrefix(device, "hw:") {
 		plugDevice := "plughw:" + strings.TrimPrefix(device, "hw:")
 		logger.L.Warn("openALSA: hw: refused the requested format, retrying via plughw: (output will no longer be bit-perfect)",
@@ -495,8 +522,10 @@ func openALSARaw(ctx context.Context, device string, channels uint8, rate uint32
 	}
 
 	// configure_hw_pcm closes the handle itself on failure.
+	allowResample, bufferPeriods := alsaTuning(device)
 	if rc := C.configure_hw_pcm(
 		C.uint(channels), C.uint(rate), C.int(bits),
+		C.int(allowResample), C.int(bufferPeriods),
 		&handle, &result,
 	); rc < 0 {
 		return nil, result, fmt.Errorf("configure_hw_pcm(%s, ch=%d, rate=%d, bits=%d): %s: %w",
@@ -525,14 +554,9 @@ func (p *Player) Play(url string) (<-chan struct{}, error) {
 		return nil, err
 	}
 
-	cardNum, err := parseCardNum(device)
-	if err != nil {
-		return nil, err
-	}
-
 	ctx, cancel := context.WithCancel(context.Background())
 
-	releaseReservation, err := reserveALSADevice(ctx, cardNum)
+	releaseReservation, err := reserveUnlessShared(ctx, device)
 	if err != nil {
 		cancel()
 		return nil, err
@@ -688,11 +712,16 @@ func closeALSA(ah *alsaHandle) {
 func (p *Player) playbackLoop(ctx context.Context, url, device string, releaseReservation func()) bool {
 	logger.L.Debug("playbackLoop start")
 
-	cardNum, err := parseCardNum(device)
-	if err != nil {
-		logger.L.Error("playbackLoop: cannot parse card number", "device", device, "err", err)
-		releaseReservation()
-		return false
+	// Validate the device before the stream is opened, so a malformed string
+	// fails without an HTTP body to unwind. The shared PCM carries no card
+	// number and is exempt.
+	if !IsSharedDevice(device) {
+		_, err := parseCardNum(device)
+		if err != nil {
+			logger.L.Error("playbackLoop: cannot parse card number", "device", device, "err", err)
+			releaseReservation()
+			return false
+		}
 	}
 
 	resp, stream, err := openStream(ctx, url)
@@ -738,7 +767,7 @@ func (p *Player) playbackLoop(ctx context.Context, url, device string, releaseRe
 	// reacquireALSA re-claims the D-Bus reservation and reopens the ALSA
 	// device. Used after releasing on pause.
 	reacquireALSA := func() (*alsaHandle, func(), error) {
-		rel, rerr := reserveALSADevice(ctx, cardNum)
+		rel, rerr := reserveUnlessShared(ctx, device)
 		if rerr != nil {
 			return nil, nil, rerr
 		}
