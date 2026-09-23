@@ -9,9 +9,41 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"golang.org/x/image/draw"
 )
+
+// coverMode is how the album cover is drawn.
+type coverMode int
+
+const (
+	// coverBlocks draws the cover with Unicode quadrant characters, inside the
+	// normal text frame. It always works.
+	coverBlocks coverMode = iota
+	// coverKitty uploads the cover once and places it by id, out of band.
+	coverKitty
+	// coverSixel paints the cover as sixel data, out of band. The terminal
+	// keeps no copy, so every redraw re-sends the payload.
+	coverSixel
+)
+
+// DetectCoverMode picks the best graphics protocol this terminal supports.
+// Kitty is preferred where both are available: it uploads once and re-places by
+// id, where sixel has to re-send the whole image on every move.
+//
+// The cell-size check comes before the sixel query so a terminal that cannot
+// report pixel dimensions — where a sixel image could not be sized to its box —
+// costs no round trip.
+func DetectCoverMode() coverMode {
+	if KittySupported() {
+		return coverKitty
+	}
+	if _, _, ok := cellPixelSize(); ok && SixelSupported() {
+		return coverSixel
+	}
+	return coverBlocks
+}
 
 // KittySupported reports whether the running terminal supports the Kitty
 // terminal graphics protocol. Ghostty, Kitty, and WezTerm all qualify.
@@ -45,6 +77,39 @@ type kittyState struct {
 	// resize, where the terminal may keep placements at their old coordinates.
 	// The next frame clears and redraws unconditionally.
 	stale bool
+
+	// drawnCol, drawnRow, drawnCols and drawnRows are the box the image was
+	// last painted into. Kitty clears by image id and does not need them, but
+	// sixel leaves plain pixels behind that can only be erased by painting over
+	// the cells they occupy — including after the box has moved or gone away,
+	// when the current layout no longer says where they were.
+	drawnCol, drawnRow, drawnCols, drawnRows int
+
+	// quant is the cover already scaled and reduced to a palette, kept so a
+	// partial repaint can re-encode rows out of it instead of redoing the
+	// expensive half. quantKey is the cover and pixel size it was built for.
+	quant    *image.Paletted
+	quantKey string
+
+	// viewLines is the slice of the last rendered frame that lies over the
+	// cover box, and drawnLines the same slice as it was when the image was
+	// last painted. BubbleTea rewrites a line whenever any part of it changes,
+	// and a rewritten line overwrites the sixel pixels in its cells, so the
+	// difference between these two is exactly the damage to repair.
+	viewLines  []string
+	drawnLines []string
+
+	// repainting guards the delayed sixel repaint so a burst of messages
+	// schedules one, not one per message.
+	repainting atomic.Bool
+}
+
+// markDrawn records what is now on screen: the key a later sync compares
+// against to stay silent, and the box a later clear has to paint over.
+func (ks *kittyState) markDrawn(key string, col, row, cols, rows int) {
+	ks.drawnKey = key
+	ks.stale = false
+	ks.drawnCol, ks.drawnRow, ks.drawnCols, ks.drawnRows = col, row, cols, rows
 }
 
 // kittyClearCover returns the Kitty escape that removes the cover's placements

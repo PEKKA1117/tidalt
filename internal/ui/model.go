@@ -235,10 +235,15 @@ type Model struct {
 	coverImage    image.Image // nil while loading or unavailable
 	coverCacheKey string      // UUID of the currently displayed cover
 
-	// kittySupported is set once at startup; when true the Now-Playing cover is
+	// cellPx reports the terminal's cell size in pixels, overriding the
+	// question being put to the terminal itself. Only tests set it — there is
+	// no terminal behind them to ask.
+	cellPx func() (w, h int, ok bool)
+
+	// gfxMode is set once at startup; when it is not coverBlocks the cover is
 	// drawn with the Kitty graphics protocol at absolute coordinates, otherwise
 	// Unicode block art is used.
-	kittySupported bool
+	gfxMode coverMode
 
 	// kitty caches the expensive PNG-encode + tracks what was last emitted so
 	// the image escape is only re-encoded/re-sent on a real change (new cover
@@ -295,7 +300,7 @@ func (m *Model) activeTheme() Theme {
 // the same model with tea.WithoutRenderer() and no TTY, where writing image
 // escapes to stdout would corrupt its log output.
 func (m Model) WithoutGraphics() Model {
-	m.kittySupported = false
+	m.gfxMode = coverBlocks
 	m.ttyOut = nil
 	return m
 }
@@ -328,27 +333,27 @@ func InitialModel(ctx context.Context, client *tidal.Client, s *store.SecretsSto
 	themeName, palette, theme := loadTheme(s)
 
 	return Model{
-		ctx:            ctx,
-		client:         client,
-		store:          s,
-		player:         p,
-		searchInput:    ti,
-		section:        SecQueue,
-		focusMain:      true,
-		volume:         vol,
-		currentDevice:  currentDevice,
-		bitPerfect:     true,
-		progress:       progressWithTheme(theme, 40),
-		mprisCh:        mprisCh,
-		favorites:      make(map[int]bool),
-		openURL:        openURL,
-		mprisServer:    srv,
-		kittySupported: KittySupported(),
-		ttyOut:         os.Stdout,
-		kitty:          &kittyState{},
-		themeName:      themeName,
-		palette:        palette,
-		theme:          theme,
+		ctx:           ctx,
+		client:        client,
+		store:         s,
+		player:        p,
+		searchInput:   ti,
+		section:       SecQueue,
+		focusMain:     true,
+		volume:        vol,
+		currentDevice: currentDevice,
+		bitPerfect:    true,
+		progress:      progressWithTheme(theme, 40),
+		mprisCh:       mprisCh,
+		favorites:     make(map[int]bool),
+		openURL:       openURL,
+		mprisServer:   srv,
+		gfxMode:       DetectCoverMode(),
+		ttyOut:        os.Stdout,
+		kitty:         &kittyState{},
+		themeName:     themeName,
+		palette:       palette,
+		theme:         theme,
 	}
 }
 
@@ -378,27 +383,27 @@ func ClientModel(ctx context.Context, client *tidal.Client, s *store.SecretsStor
 	themeName, palette, theme := loadTheme(s)
 
 	return Model{
-		ctx:            ctx,
-		client:         client,
-		store:          s,
-		player:         p,
-		searchInput:    ti,
-		section:        SecQueue,
-		focusMain:      true,
-		volume:         vol,
-		currentDevice:  currentDevice,
-		bitPerfect:     true,
-		progress:       progressWithTheme(clientTint(palette).Theme(), 40),
-		favorites:      make(map[int]bool),
-		openURL:        openURL,
-		clientMode:     true,
-		mprisClient:    mprisClient,
-		kittySupported: KittySupported(),
-		ttyOut:         os.Stdout,
-		kitty:          &kittyState{},
-		themeName:      themeName,
-		palette:        palette,
-		theme:          theme,
+		ctx:           ctx,
+		client:        client,
+		store:         s,
+		player:        p,
+		searchInput:   ti,
+		section:       SecQueue,
+		focusMain:     true,
+		volume:        vol,
+		currentDevice: currentDevice,
+		bitPerfect:    true,
+		progress:      progressWithTheme(clientTint(palette).Theme(), 40),
+		favorites:     make(map[int]bool),
+		openURL:       openURL,
+		clientMode:    true,
+		mprisClient:   mprisClient,
+		gfxMode:       DetectCoverMode(),
+		ttyOut:        os.Stdout,
+		kitty:         &kittyState{},
+		themeName:     themeName,
+		palette:       palette,
+		theme:         theme,
 	}
 }
 
@@ -888,7 +893,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return next, cmd
 	}
 	sync := func() tea.Msg {
-		nm.syncKittyCover()
+		nm.syncCoverAfterFrame()
 		return nil
 	}
 	if cmd == nil {
@@ -1505,8 +1510,36 @@ func (m Model) View() string {
 	// renderer truncates each line to the terminal width and skips lines
 	// unchanged since the last frame, which mangles or silently drops a long
 	// graphics escape. It is written straight to the TTY from Update instead
-	// (see syncKittyCover).
+	// (see syncCover).
+	m.recordCoverLines(view)
 	return view
+}
+
+// recordCoverLines stashes the frame lines that lie over the cover box, so the
+// next sixel reconcile can tell which of them the renderer rewrote — and so
+// overwrote the image in those cells.
+//
+// Only sixel needs this. A Kitty image is a layer above the text and survives
+// any repaint underneath it.
+func (m Model) recordCoverLines(view string) {
+	if m.gfxMode != coverSixel || m.kitty == nil {
+		return
+	}
+	_, row, _, imgRows, ok := m.coverBoxRect()
+	if !ok || !m.useGraphicsCover() {
+		return
+	}
+	lines := strings.Split(view, "\n")
+	start := row - 1 // coverBoxRect is 1-indexed; frame lines are not
+	end := min(start+imgRows, len(lines))
+	if start < 0 || start >= end {
+		return
+	}
+	box := append([]string(nil), lines[start:end]...)
+
+	m.kitty.mu.Lock()
+	m.kitty.viewLines = box
+	m.kitty.mu.Unlock()
 }
 
 // kittyCoverOverlay returns the Kitty escape that draws the cover image over the
@@ -1529,8 +1562,8 @@ func (m Model) View() string {
 // The expensive PNG encode still runs only when the cover or box geometry
 // changes, and nothing is written when the desired state already matches what
 // is on screen, so idle frames stay silent.
-func (m *Model) syncKittyCover() {
-	if !m.kittySupported || m.ttyOut == nil {
+func (m *Model) syncCover() {
+	if m.gfxMode == coverBlocks || m.ttyOut == nil {
 		return
 	}
 	if m.kitty == nil {
@@ -1547,13 +1580,18 @@ func (m *Model) syncKittyCover() {
 	defer ks.mu.Unlock()
 
 	col, row, panelW, imgRows, ok := m.coverBoxRect()
-	if !ok || !m.useKittyCover() {
+	if !ok || !m.useGraphicsCover() {
 		// Cover should not be shown: clear it once, then stay quiet.
 		if ks.drawnKey != "" || ks.stale {
 			ks.drawnKey = ""
 			ks.stale = false
-			m.writeGfx(kittyClearCover())
+			m.writeGfx(m.clearCoverEscape(ks))
 		}
+		return
+	}
+
+	if m.gfxMode == coverSixel {
+		m.drawSixelCover(ks, col, row, panelW, imgRows)
 		return
 	}
 
@@ -1590,8 +1628,118 @@ func (m *Model) syncKittyCover() {
 		ks.drawnKey = ""
 		return
 	}
-	ks.drawnKey = key
-	ks.stale = false
+	ks.markDrawn(key, col, row, panelW, imgRows)
+}
+
+// drawSixelCover is the sixel half of the reconcile. It differs from the Kitty
+// path in what it can cache: the terminal keeps no copy of the image, so a move
+// re-sends the whole payload, and only a box of the same pixel size can reuse
+// the encoded one.
+//
+// Nothing is drawn when the terminal cannot report its cell size, since the
+// image could not then be sized to the box and would scroll the frame.
+func (m *Model) drawSixelCover(ks *kittyState, col, row, panelW, imgRows int) {
+	cellW, cellH, ok := m.cellPixels()
+	if !ok {
+		return
+	}
+	pxW, pxH := panelW*cellW, imgRows*cellH
+
+	quantKey := fmt.Sprintf("%s@%dx%dpx", m.coverCacheKey, pxW, pxH)
+	if ks.quantKey != quantKey {
+		ks.quant = sixelQuantise(m.coverImage, pxW, pxH)
+		ks.quantKey = quantKey
+	}
+	if ks.quant == nil {
+		return
+	}
+
+	key := fmt.Sprintf("%s+%d,%d", quantKey, col, row)
+	moved := ks.drawnCol != col || ks.drawnRow != row ||
+		ks.drawnCols != panelW || ks.drawnRows != imgRows
+
+	var out strings.Builder
+	switch {
+	case ks.drawnKey != key || ks.stale:
+		// A different cover, a different box, or state we cannot trust:
+		// erase whatever was there if it will not be covered, and repaint
+		// the lot.
+		if ks.drawnKey != "" && moved {
+			out.WriteString(sixelClearBox(ks.drawnCol, ks.drawnRow, ks.drawnCols, ks.drawnRows))
+		}
+		out.WriteString(sixelDrawAt(col, row, sixelEncodeRows(ks.quant, 0, pxH)))
+	default:
+		// Same image in the same place: only the rows the renderer rewrote
+		// need painting again. This is the common case — moving the cursor
+		// down a track list, or the equaliser animating — and repainting the
+		// whole cover for it would be a six-figure write several times a
+		// second.
+		damaged := damagedRows(ks.drawnLines, ks.viewLines)
+		if len(damaged) == 0 {
+			return
+		}
+		for _, r := range damaged {
+			out.WriteString(sixelDrawAt(col, row+r[0], sixelEncodeRows(ks.quant, r[0]*cellH, r[1]*cellH)))
+		}
+	}
+
+	if !m.writeGfx(out.String()) {
+		ks.quantKey = ""
+		ks.drawnKey = ""
+		return
+	}
+	ks.markDrawn(key, col, row, panelW, imgRows)
+	ks.drawnLines = append([]string(nil), ks.viewLines...)
+}
+
+// coverRepaintDelay orders the sixel reconcile behind the renderer. BubbleTea
+// hands the frame to its renderer as Update returns but the renderer writes it
+// on a ticker of its own, at 60fps by default, so a command dispatched here can
+// otherwise reach the terminal first — painting the image just in time to be
+// overwritten, and recording it as clean. Two frame periods is enough to be
+// behind that write without being visible as lag.
+const coverRepaintDelay = 33 * time.Millisecond
+
+// syncCoverAfterFrame runs the reconcile once the frame that could damage the
+// image has been written. Only sixel waits: a Kitty image is a layer above the
+// text and does not care when the text lands.
+//
+// Waiting means a burst of messages would otherwise queue a reconcile each, so
+// one is allowed in flight at a time; the model state each reads is the latest
+// either way, and any damage a skipped one would have repaired is still there
+// for the one that runs.
+func (m *Model) syncCoverAfterFrame() {
+	if m.gfxMode != coverSixel {
+		m.syncCover()
+		return
+	}
+	if m.kitty == nil {
+		m.kitty = &kittyState{}
+	}
+	if !m.kitty.repainting.CompareAndSwap(false, true) {
+		return
+	}
+	defer m.kitty.repainting.Store(false)
+	time.Sleep(coverRepaintDelay)
+	m.syncCover()
+}
+
+// cellPixels reports the cell size in pixels, asking the terminal unless a
+// substitute has been installed.
+func (m *Model) cellPixels() (w, h int, ok bool) {
+	if m.cellPx != nil {
+		return m.cellPx()
+	}
+	return cellPixelSize()
+}
+
+// clearCoverEscape returns the escape that removes the cover currently on
+// screen, whichever protocol put it there.
+func (m *Model) clearCoverEscape(ks *kittyState) string {
+	if m.gfxMode == coverSixel {
+		return sixelClearBox(ks.drawnCol, ks.drawnRow, ks.drawnCols, ks.drawnRows)
+	}
+	return kittyClearCover()
 }
 
 // writeGfx writes a graphics escape to the TTY, reporting whether it landed. A
