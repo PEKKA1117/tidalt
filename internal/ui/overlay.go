@@ -201,11 +201,13 @@ func (m Model) runSheetAction(id actionID) (tea.Model, tea.Cmd) {
 		cmd := m.playTrackCmd(track)
 		return m, cmd
 	case actPlayNext:
-		m.enqueueNext(track)
-		return m, nil
+		// Bind the command first: enqueue* mutates m outside client mode, and
+		// the evaluation order of m against the call is unspecified.
+		cmd := m.enqueueNext(track)
+		return m, cmd
 	case actAddQueue:
-		m.enqueueEnd(track)
-		return m, nil
+		cmd := m.enqueueEnd(track)
+		return m, cmd
 	case actRemoveQueue:
 		if m.section == SecQueue {
 			m.removeFromQueue(m.cursor)
