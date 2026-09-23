@@ -113,9 +113,21 @@ func (m *Model) clearQueue() {
 // removeFromQueue drops the track at index i from the live queue, marks the
 // queue edited, and keeps the cursor in range. The currently-playing audio is
 // unaffected (it is already buffered); only the queue list changes.
-func (m *Model) removeFromQueue(i int) {
+//
+// In client mode the removal is forwarded to the parent by track ID and the
+// local list is left to the next poll, as the enqueue functions do.
+func (m *Model) removeFromQueue(i int) tea.Cmd {
 	if i < 0 || i >= len(m.tracks) {
-		return
+		return nil
+	}
+	if m.clientMode {
+		mc, trackID := m.mprisClient, m.tracks[i].ID
+		return func() tea.Msg {
+			if err := mc.SendDequeue(trackID); err != nil {
+				return errMsg(err)
+			}
+			return nil
+		}
 	}
 	removed := m.tracks[i]
 	m.tracks = append(m.tracks[:i], m.tracks[i+1:]...)
@@ -134,6 +146,21 @@ func (m *Model) removeFromQueue(i int) {
 	}
 	m.queueDirty = true
 	_ = m.store.SavePlaylist(m.tracks)
+	return nil
+}
+
+// removeFirstByID drops the first queue entry with this track ID. It is how a
+// client's removal is applied on the parent, where the queue may be held in a
+// different order than the client displays. A queue holding the same track
+// twice loses the earlier copy; the alternative, addressing by position, is
+// wrong across two independently shuffled lists.
+func (m *Model) removeFirstByID(id int) {
+	for i := range m.tracks {
+		if m.tracks[i].ID == id {
+			m.removeFromQueue(i)
+			return
+		}
+	}
 }
 
 // loadQueueFromPlaylist replaces the live queue with a playlist's tracks and

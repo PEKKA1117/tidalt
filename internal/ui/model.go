@@ -1030,6 +1030,12 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if len(tracks) != len(m.tracks) || (len(tracks) > 0 && tracks[0].ID != m.tracks[0].ID) {
 					m.tracksOrder = tracks
 					m.applyShuffle()
+					// The parent's queue can shrink under us — a removal made
+					// here arrives as a shorter list — so the cursor has to be
+					// pulled back into range.
+					if m.cursor >= len(m.tracks) {
+						m.cursor = max(len(m.tracks)-1, 0)
+					}
 					// Don't yank the user out of a view they're actively browsing
 					// (search results, artist view, device select). The updated
 					// playlist is still applied underneath, so it's there when they
@@ -1438,6 +1444,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				m.enqueueEnd(t)
 			}
+			m.pushState()
+		case mpris.CmdDequeue:
+			m.removeFirstByID(ev.TrackID)
 			m.pushState()
 		case mpris.CmdSetDevice:
 			m.currentDevice = ev.Device

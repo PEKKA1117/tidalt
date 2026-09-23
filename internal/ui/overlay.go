@@ -210,7 +210,8 @@ func (m Model) runSheetAction(id actionID) (tea.Model, tea.Cmd) {
 		return m, cmd
 	case actRemoveQueue:
 		if m.section == SecQueue {
-			m.removeFromQueue(m.cursor)
+			cmd := m.removeFromQueue(m.cursor)
+			return m, cmd
 		}
 		return m, nil
 	case actAddPlaylist:
