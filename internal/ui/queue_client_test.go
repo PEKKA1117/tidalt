@@ -202,3 +202,74 @@ func TestParentAppliesClientEnqueue(t *testing.T) {
 
 // must drops the command half of an Update so the model can be asserted on.
 func must(m tea.Model, _ tea.Cmd) tea.Model { return m }
+
+// TestRemoveFromQueueForwardsInClientMode asserts a client asks the parent to
+// drop the track instead of editing the copy the parent is about to overwrite.
+func TestRemoveFromQueueForwardsInClientMode(t *testing.T) {
+	m := newSmokeModel()
+	m.clientMode = true
+	before := len(m.tracks)
+
+	cmd := m.removeFromQueue(1)
+
+	if cmd == nil {
+		t.Error("no command returned; the parent would keep playing the removed track")
+	}
+	if len(m.tracks) != before {
+		t.Errorf("local queue changed to %d tracks; the parent's copy is authoritative", len(m.tracks))
+	}
+
+	// An out-of-range index is still a no-op, with nothing sent.
+	if cmd := m.removeFromQueue(before); cmd != nil {
+		t.Error("a command was sent for an index that is not in the queue")
+	}
+}
+
+// TestParentAppliesClientDequeue drives the parent's side: the track named by
+// ID leaves the queue wherever the parent happens to be holding it.
+func TestParentAppliesClientDequeue(t *testing.T) {
+	m := newSmokeModel()
+	// Hold the queue in a different order than a client would display, which
+	// is exactly why the wire carries an ID and not a position.
+	m.tracksOrder = []tidal.Track{m.tracks[2], m.tracks[0], m.tracks[1]}
+	m.applyShuffle()
+
+	got := asModel(t, must(m.Update(mprisMsg(mpris.Event{
+		Cmd: mpris.CmdDequeue, TrackID: 2,
+	}))))
+
+	if len(got.tracks) != 2 {
+		t.Fatalf("queue holds %d tracks, want 2", len(got.tracks))
+	}
+	for i := range got.tracks {
+		if got.tracks[i].ID == 2 {
+			t.Fatalf("track 2 is still queued at index %d", i)
+		}
+	}
+
+	// An ID that is not queued leaves the queue alone.
+	again := asModel(t, must(got.Update(mprisMsg(mpris.Event{
+		Cmd: mpris.CmdDequeue, TrackID: 777,
+	}))))
+	if len(again.tracks) != 2 {
+		t.Errorf("queue holds %d tracks after removing an absent ID, want 2", len(again.tracks))
+	}
+}
+
+// TestParentStateClampsCursorOnShrunkQueue covers the cursor after a removal
+// arrives from the parent as a shorter list: it must not be left pointing past
+// the end, where the next key press would index out of range.
+func TestParentStateClampsCursorOnShrunkQueue(t *testing.T) {
+	m := newSmokeModel()
+	m.clientMode = true
+	m.cursor = 2
+
+	shorter := parentStateMsg(mpris.PlayerState{
+		PlaylistJSON: mpris.MarshalTracks([]tidal.Track{{ID: 1, Title: "One"}}),
+	})
+	got := asModel(t, must(m.Update(shorter)))
+
+	if got.cursor >= len(got.tracks) {
+		t.Errorf("cursor = %d with %d tracks queued", got.cursor, len(got.tracks))
+	}
+}
