@@ -38,6 +38,7 @@ const (
 	CmdPlayPlaylist // PlaylistJSON and PlaylistStartIndex are in Event
 	CmdSetDevice    // Device is in Event.Device
 	CmdEnqueue      // TrackJSON and EnqueueNext are in Event
+	CmdDequeue      // TrackID is in Event
 )
 
 // Event is sent on the Commands channel for every media key press or URL
@@ -45,7 +46,7 @@ const (
 type Event struct {
 	Cmd                Cmd
 	URL                string // non-empty only for CmdOpenURL
-	TrackID            int    // non-zero only for CmdPlayTrackID
+	TrackID            int    // non-zero for CmdPlayTrackID and CmdDequeue
 	PlaylistJSON       string // non-empty only for CmdPlayPlaylist
 	PlaylistStartIndex int    // for CmdPlayPlaylist: index of the first track to play
 	Device             string // non-empty only for CmdSetDevice
@@ -242,6 +243,14 @@ func (c *Client) SendEnqueue(trackJSON string, next bool) error {
 	return c.obj.Call(appIface+".Enqueue", 0, trackJSON, next).Err
 }
 
+// SendDequeue asks the running instance to drop a track from its queue. The
+// track is named by ID rather than by position: the two instances can hold the
+// same queue in different orders (each shuffles its own copy), so an index
+// means nothing across the wire.
+func (c *Client) SendDequeue(trackID int) error {
+	return c.obj.Call(appIface+".Dequeue", 0, trackID).Err
+}
+
 // SendPlayPause toggles play/pause on the running instance.
 func (c *Client) SendPlayPause() error {
 	return c.obj.Call("org.mpris.MediaPlayer2.Player.PlayPause", 0).Err
@@ -402,6 +411,17 @@ func (a *tidalApp) PlayPlaylist(tracksJSON string, startIndex int) *dbus.Error {
 func (a *tidalApp) Enqueue(trackJSON string, next bool) *dbus.Error {
 	select {
 	case a.ch <- Event{Cmd: CmdEnqueue, TrackJSON: trackJSON, EnqueueNext: next}:
+	default:
+	}
+	return nil
+}
+
+// Dequeue is called by a client instance to drop the first queue entry with
+// this Tidal track ID. Playback is untouched, even when the removed entry is
+// the one playing — the audio is already buffered.
+func (a *tidalApp) Dequeue(trackID int) *dbus.Error {
+	select {
+	case a.ch <- Event{Cmd: CmdDequeue, TrackID: trackID}:
 	default:
 	}
 	return nil
@@ -624,6 +644,9 @@ const introspectionXML = `<!DOCTYPE node PUBLIC
     <method name="Enqueue">
       <arg name="trackJSON" type="s" direction="in"/>
       <arg name="next"      type="b" direction="in"/>
+    </method>
+    <method name="Dequeue">
+      <arg name="trackID" type="i" direction="in"/>
     </method>
     <method name="SetDevice">
       <arg name="hwName" type="s" direction="in"/>

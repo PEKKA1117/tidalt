@@ -60,3 +60,27 @@ func TestEnqueueDropsWhenNobodyListens(t *testing.T) {
 		t.Fatal("Enqueue blocked on an unread channel")
 	}
 }
+
+// TestDequeueEmitsEvent asserts a client's removal reaches the UI loop as a
+// track ID, which is the only addressing that survives two instances holding
+// the queue in different orders.
+func TestDequeueEmitsEvent(t *testing.T) {
+	ch := make(chan Event, 1)
+	app := &tidalApp{ch: ch}
+
+	if dErr := app.Dequeue(4242); dErr != nil {
+		t.Fatalf("Dequeue returned %v", dErr)
+	}
+
+	select {
+	case ev := <-ch:
+		if ev.Cmd != CmdDequeue {
+			t.Errorf("Cmd = %v, want CmdDequeue", ev.Cmd)
+		}
+		if ev.TrackID != 4242 {
+			t.Errorf("TrackID = %d, want 4242", ev.TrackID)
+		}
+	default:
+		t.Fatal("no event was queued")
+	}
+}
