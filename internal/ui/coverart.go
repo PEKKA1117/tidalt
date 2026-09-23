@@ -167,6 +167,26 @@ func rgbaOf(c color.Color) color.RGBA {
 	return color.RGBA{R: uint8(r >> 8), G: uint8(g >> 8), B: uint8(b >> 8)}
 }
 
+// blockArtLines renders img as exactly rows lines of block art, padded with
+// blanks if the renderer returns fewer. Unlike coverPanelLines it reserves no
+// room for text, so the art lines up cell for cell with a box measured for an
+// image and nothing else.
+func blockArtLines(img image.Image, w, rows int) []string {
+	out := make([]string, rows)
+	blank := strings.Repeat(" ", max(w, 0))
+	for i := range out {
+		out[i] = blank
+	}
+	if img == nil || w <= 0 || rows <= 0 {
+		return out
+	}
+	art := strings.Split(strings.TrimRight(renderBlockArt(img, w, rows), "\n"), "\n")
+	for i := range min(len(art), rows) {
+		out[i] = art[i]
+	}
+	return out
+}
+
 // coverPanelLines returns h lines of text for the right-side panel showing
 // the album art (as Unicode block art) and track metadata. w is the panel
 // width in terminal columns. The crisp Kitty-graphics cover is drawn separately

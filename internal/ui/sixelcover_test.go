@@ -218,3 +218,45 @@ func TestSixelCoverRepairsOnlyDamagedRows(t *testing.T) {
 		t.Errorf("repair was not drawn at the rows that changed (box starts at row %d)", row)
 	}
 }
+
+// TestSixelBoxCarriesBlockArt asserts the cells under a sixel cover hold block
+// art rather than blanks. The renderer wipes those cells whenever the line
+// changes, and what shows through until the repaint lands is whatever the
+// frame put there.
+func TestSixelBoxCarriesBlockArt(t *testing.T) {
+	m, _ := sixelCoverModel(t)
+	_, row, panelW, imgRows, ok := m.coverBoxRect()
+	if !ok {
+		t.Fatal("no cover box in the Queue section")
+	}
+
+	boxLines := func(m Model) []string {
+		lines := strings.Split(m.View(), "\n")
+		return lines[row-1 : row-1+imgRows]
+	}
+
+	blank := strings.Repeat(" ", panelW)
+	painted := 0
+	for _, ln := range boxLines(m) {
+		if strings.Contains(ln, blank) {
+			continue
+		}
+		painted++
+	}
+	if painted == 0 {
+		t.Error("cover box is blank under the sixel image; a damaged row shows terminal background")
+	}
+
+	// Kitty hides whatever is underneath, so it keeps the cheap blank box.
+	k := m
+	k.gfxMode = coverKitty
+	blanks := 0
+	for _, ln := range boxLines(k) {
+		if strings.Contains(ln, blank) {
+			blanks++
+		}
+	}
+	if blanks != imgRows {
+		t.Errorf("%d of %d rows blank under a Kitty cover, want all", blanks, imgRows)
+	}
+}
