@@ -27,12 +27,24 @@ func (m *Model) enqueueNext(t tidal.Track) {
 	_ = m.store.SavePlaylist(m.tracks)
 }
 
-// playListIntoQueue loads a list of tracks into the live queue (as an ad-hoc,
-// unsaved queue) and plays from index i. Used by sections that play through a
-// list — Favorite Songs, Recently Played, etc.
-func (m *Model) playListIntoQueue(list []tidal.Track, i int) tea.Cmd {
+// markLocalQueue flags a freshly loaded queue as one the client owns but has
+// not handed to the parent yet. It does two things in client mode: doPlayTrack
+// sends the whole list (SendPlaylist) instead of the single selected track
+// (SendTrackID), and parentStateMsg stops mirroring the parent's — still
+// stale — queue back over it. Without it a playlist collapses to whichever
+// track was selected. No-op when this instance is the player itself.
+func (m *Model) markLocalQueue() {
+	if m.clientMode {
+		m.localPlaylist = true
+	}
+}
+
+// loadListIntoQueue replaces the live queue with an ad-hoc, unsaved list and
+// puts the cursor on index i. Reports false when i is out of range, in which
+// case the queue is left untouched.
+func (m *Model) loadListIntoQueue(list []tidal.Track, i int) bool {
 	if i < 0 || i >= len(list) {
-		return nil
+		return false
 	}
 	m.tracksOrder = append([]tidal.Track(nil), list...)
 	m.shuffleMode = ShuffleOff
@@ -41,7 +53,18 @@ func (m *Model) playListIntoQueue(list []tidal.Track, i int) tea.Cmd {
 	m.queuePlaylistUUID = ""
 	m.queueDirty = false
 	m.cursor = i
+	m.markLocalQueue()
 	_ = m.store.SavePlaylist(m.tracks)
+	return true
+}
+
+// playListIntoQueue loads a list of tracks into the live queue (as an ad-hoc,
+// unsaved queue) and plays from index i. Used by sections that play through a
+// list — Favorite Songs, Recently Played, etc.
+func (m *Model) playListIntoQueue(list []tidal.Track, i int) tea.Cmd {
+	if !m.loadListIntoQueue(list, i) {
+		return nil
+	}
 	track := m.tracks[i]
 	_ = m.store.CacheTrack(track.ID, track)
 	return m.playTrackCmd(track)
@@ -95,6 +118,7 @@ func (m *Model) loadQueueFromPlaylist(tracks []tidal.Track, pl tidal.Playlist) {
 	m.queueSource = "playlist:" + pl.Title
 	m.queuePlaylistUUID = pl.UUID
 	m.queueDirty = false
+	m.markLocalQueue()
 	_ = m.store.SavePlaylist(m.tracks)
 }
 
