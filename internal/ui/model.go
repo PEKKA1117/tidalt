@@ -1425,6 +1425,20 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				},
 				listenMPRIS(m.mprisCh),
 			)
+		case mpris.CmdEnqueue:
+			// Only a parent ever receives this, so enqueueNext/enqueueEnd take
+			// their local branch and insert relative to the playing track.
+			var t tidal.Track
+			if err := json.Unmarshal([]byte(ev.TrackJSON), &t); err != nil {
+				m.errText = fmt.Sprintf("invalid track from client: %v", err)
+				break
+			}
+			if ev.EnqueueNext {
+				m.enqueueNext(t)
+			} else {
+				m.enqueueEnd(t)
+			}
+			m.pushState()
 		case mpris.CmdSetDevice:
 			m.currentDevice = ev.Device
 			m.player.SetDevice(ev.Device)
