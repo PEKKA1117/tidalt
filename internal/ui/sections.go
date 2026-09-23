@@ -80,12 +80,26 @@ func (m *Model) renderQueueCover(t Theme, w, h int) string {
 	panelW, imgRows := m.queueCoverDims(w, h)
 
 	var b strings.Builder
-	if m.useGraphicsCover() {
+	switch {
+	case m.useGraphicsCover() && m.gfxMode == coverKitty:
+		// Kitty draws in a layer above the cells, so whatever is put here is
+		// hidden anyway. Blank is the cheapest thing to render and to diff.
 		for range imgRows {
 			b.WriteString(strings.Repeat(" ", panelW))
 			b.WriteByte('\n')
 		}
-	} else {
+	case m.useGraphicsCover():
+		// Sixel pixels live in the cells, and the renderer rewrites one of
+		// these lines whenever the track list beside it changes — blanking the
+		// image there until the reconcile repaints it a frame later. Block art
+		// underneath means that gap shows a coarse version of the same cover
+		// instead of bare terminal background, which is the difference between
+		// a flicker and a hole.
+		for _, ln := range blockArtLines(m.coverImage, panelW, imgRows) {
+			b.WriteString(ln)
+			b.WriteByte('\n')
+		}
+	default:
 		cover := coverPanelLines(m.coverImage, "", "", "", panelW, imgRows)
 		for _, ln := range cover {
 			b.WriteString(ln)
