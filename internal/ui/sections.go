@@ -80,7 +80,7 @@ func (m *Model) renderQueueCover(t Theme, w, h int) string {
 	panelW, imgRows := m.queueCoverDims(w, h)
 
 	var b strings.Builder
-	if m.useKittyCover() {
+	if m.useGraphicsCover() {
 		for range imgRows {
 			b.WriteString(strings.Repeat(" ", panelW))
 			b.WriteByte('\n')
@@ -235,10 +235,10 @@ func (m *Model) renderArtistAlbumPane(t Theme, w, h int) string {
 	return renderListPanel(t, title, true, rows, m.artistAlbumCursor, w, h)
 }
 
-// useKittyCover reports whether the Now-Playing cover should be drawn with the
-// Kitty graphics protocol (written straight to the TTY) instead of block art. Kitty is
-// only safe when no overlay is covering the pane, since the popup would not
-// hide a terminal-drawn image.
-func (m *Model) useKittyCover() bool {
-	return m.kittySupported && m.coverImage != nil && m.overlay == OverlayNone
+// useGraphicsCover reports whether the cover should be drawn by the terminal
+// (written straight to the TTY) instead of as block art inside the text frame.
+// Either protocol is only safe when no overlay is covering the pane, since the
+// popup is text and would not hide a terminal-drawn image.
+func (m *Model) useGraphicsCover() bool {
+	return m.gfxMode != coverBlocks && m.coverImage != nil && m.overlay == OverlayNone
 }
