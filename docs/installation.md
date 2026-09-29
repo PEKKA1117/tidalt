@@ -1,5 +1,30 @@
 # Installation
 
+## This fork (Arch Linux)
+
+`packaging/arch-fork/PKGBUILD` builds the fork from git. It keeps
+`pkgname=tidalt`, so it **replaces** the official package:
+
+```bash
+cd packaging/arch-fork
+makepkg -si                                    # builds what is pushed to the fork
+TIDALT_FORK_URL="file://$PWD/../.." makepkg -si  # builds the local checkout
+```
+
+`makepkg` clones rather than copies, so a local build sees committed work only —
+uncommitted changes are not packaged.
+
+Because the package name is shared with upstream, a later `paru -Syu` will pull
+the official release back over it as soon as upstream's version sorts higher.
+To hold the fork in place, add to `/etc/pacman.conf`:
+
+```
+IgnorePkg = tidalt
+```
+
+That pin blocks upgrades for this package only; it is worth revisiting whenever
+upstream releases, so the fork can be rebased rather than left behind.
+
 ## From a release (recommended)
 
 Pre-built packages are attached to every [GitHub release](https://github.com/Benehiko/tidalt/releases).
