@@ -548,3 +548,46 @@ func TestGetMixTracks_NotFound(t *testing.T) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
+
+// --- GetArtistAllTracks ---
+
+// TestGetArtistAllTracks_IncludesEPsAndSingles guards against the unfiltered
+// /artists/{id}/albums call, which returns full albums only: EPs and singles
+// must be fetched via filter=EPSANDSINGLES and folded into the track list.
+func TestGetArtistAllTracks_IncludesEPsAndSingles(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/artists/7/albums"):
+			switch r.URL.Query().Get("filter") {
+			case "":
+				respond(w, 200, map[string]any{"items": []map[string]any{{"id": 100}}, "totalNumberOfItems": 1})
+			case "EPSANDSINGLES":
+				// Album 100 repeated to check dedup across filters.
+				respond(w, 200, map[string]any{"items": []map[string]any{{"id": 200}, {"id": 100}}, "totalNumberOfItems": 2})
+			default:
+				t.Errorf("unexpected filter %q", r.URL.Query().Get("filter"))
+			}
+		case strings.HasSuffix(r.URL.Path, "/albums/100/tracks"):
+			respond(w, 200, map[string]any{"items": []map[string]any{{"id": 1}, {"id": 2}}})
+		case strings.HasSuffix(r.URL.Path, "/albums/200/tracks"):
+			// Track 2 is also on the album; it must not be repeated.
+			respond(w, 200, map[string]any{"items": []map[string]any{{"id": 3}, {"id": 2}}})
+		default:
+			t.Errorf("unexpected path: %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	tracks, err := newTestClient(srv).GetArtistAllTracks(context.Background(), 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := make([]int, 0, len(tracks))
+	for _, tr := range tracks {
+		ids = append(ids, tr.ID)
+	}
+	if len(ids) != 3 || ids[0] != 1 || ids[1] != 2 || ids[2] != 3 {
+		t.Errorf("track IDs = %v, want [1 2 3]", ids)
+	}
+}

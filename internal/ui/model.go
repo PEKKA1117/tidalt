@@ -1350,6 +1350,11 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		track := m.tracks[idx]
 		_ = m.store.CacheTrack(track.ID, track)
 		cmd := m.playTrackCmd(track)
+		// Publish the new queue right away: clients stop guarding their local
+		// copy once they've sent it, so a stale snapshot here (published only
+		// once the stream resolves) would briefly replace their queue with the
+		// old one.
+		m.pushState()
 		return m, cmd
 
 	case mprisMsg:

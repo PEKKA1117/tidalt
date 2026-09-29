@@ -443,15 +443,46 @@ const (
 	artistAlbumsMaxPages  = 20 // up to 1000 albums
 )
 
-// GetArtistAlbums returns the artist's full discography, paginating through the
-// v1 /artists/{id}/albums endpoint until exhausted.
+// artistAlbumFilters are the v1 /artists/{id}/albums release groups that make
+// up an artist's own discography. With no filter the endpoint returns only full
+// albums (the "Albums" row in the Tidal app); EPs and singles live behind the
+// separate EPSANDSINGLES filter. Compilations ("Appears on") are deliberately
+// excluded: they are mostly other artists' tracks.
+var artistAlbumFilters = []string{"", "EPSANDSINGLES"}
+
+// GetArtistAlbums returns the artist's full discography — albums followed by
+// EPs and singles — deduped by album ID.
 func (c *Client) GetArtistAlbums(ctx context.Context, artistID int) ([]Album, error) {
+	var albums []Album
+	seen := make(map[int]bool)
+	for _, filter := range artistAlbumFilters {
+		page, err := c.getArtistAlbumsFiltered(ctx, artistID, filter)
+		if err != nil {
+			return nil, err
+		}
+		for _, a := range page {
+			if seen[a.ID] {
+				continue
+			}
+			seen[a.ID] = true
+			albums = append(albums, a)
+		}
+	}
+	return albums, nil
+}
+
+// getArtistAlbumsFiltered paginates through the v1 /artists/{id}/albums
+// endpoint for one release group (filter "" means full albums) until exhausted.
+func (c *Client) getArtistAlbumsFiltered(ctx context.Context, artistID int, filter string) ([]Album, error) {
 	var albums []Album
 	for page := range artistAlbumsMaxPages {
 		params := url.Values{}
 		params.Set("countryCode", c.Session.CountryCode)
 		params.Set("limit", strconv.Itoa(artistAlbumsPageLimit))
 		params.Set("offset", strconv.Itoa(page*artistAlbumsPageLimit))
+		if filter != "" {
+			params.Set("filter", filter)
+		}
 
 		u := fmt.Sprintf("%s/artists/%d/albums?%s", BaseURL, artistID, params.Encode())
 		resp, err := c.authGet(ctx, u)

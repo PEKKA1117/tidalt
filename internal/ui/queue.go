@@ -41,6 +41,12 @@ func (m *Model) playListIntoQueue(list []tidal.Track, i int) tea.Cmd {
 	m.queuePlaylistUUID = ""
 	m.queueDirty = false
 	m.cursor = i
+	// In client mode the queue only exists locally until it is handed to the
+	// parent; flag it so doPlayTrack sends the whole list rather than just the
+	// selected track, and so parentStateMsg doesn't clobber it meanwhile.
+	if m.clientMode {
+		m.localPlaylist = true
+	}
 	_ = m.store.SavePlaylist(m.tracks)
 	track := m.tracks[i]
 	_ = m.store.CacheTrack(track.ID, track)
