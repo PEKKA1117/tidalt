@@ -9,6 +9,7 @@ int open_hw_device(const char *device, snd_pcm_t **handle_out) {
 }
 
 int configure_hw_pcm(unsigned int channels, unsigned int rate, int bits,
+                     int allow_resample, int buffer_periods,
                      snd_pcm_t **handle_out,
                      alsa_open_result_t *result) {
     int rc;
@@ -21,6 +22,14 @@ int configure_hw_pcm(unsigned int channels, unsigned int rate, int bits,
 
     rc = snd_pcm_hw_params_set_access(*handle_out, params,
                                        SND_PCM_ACCESS_RW_INTERLEAVED);
+    if (rc < 0) goto fail;
+
+    // State the resampling policy explicitly rather than inheriting ALSA's
+    // default.  On a hw: device there is no plug layer to resample and this is
+    // a no-op, but it is what makes the bit-perfect claim true by construction
+    // instead of true by accident.  Plug-layer devices pass 1.
+    rc = snd_pcm_hw_params_set_rate_resample(*handle_out, params,
+                                             allow_resample ? 1u : 0u);
     if (rc < 0) goto fail;
 
     // Negotiate format — try preferred formats for the source bit depth.
@@ -65,7 +74,8 @@ int configure_hw_pcm(unsigned int channels, unsigned int rate, int bits,
     result->rate = rate;
 
     // Set period size first so the DAC gets a sane interrupt rate (~23ms at
-    // 44100 Hz), then set the buffer to 4× the negotiated period.  Setting
+    // 44100 Hz), then set the buffer to buffer_periods× the negotiated period.
+    // Setting
     // buffer first and then querying period_size_min can return absurdly small
     // values on some USB DACs (e.g. 87 frames on the Hidizs S9 Pro Plus
     // "Martha"), which causes ~1000 interrupts/s and severe distortion.
@@ -74,7 +84,7 @@ int configure_hw_pcm(unsigned int channels, unsigned int rate, int bits,
         rc = snd_pcm_hw_params_set_period_size_near(*handle_out, params, &period_size, NULL);
         if (rc < 0) goto fail;
 
-        snd_pcm_uframes_t buffer_size = period_size * 4;
+        snd_pcm_uframes_t buffer_size = period_size * (snd_pcm_uframes_t)buffer_periods;
         rc = snd_pcm_hw_params_set_buffer_size_near(*handle_out, params, &buffer_size);
         if (rc < 0) goto fail;
     }
