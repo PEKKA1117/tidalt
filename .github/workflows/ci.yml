@@ -2,9 +2,10 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, master ]
+  # No branch filter: stacked PRs target another PR's branch rather than the
+  # default branch, and they need checks too.
   pull_request:
-    branches: [ main ]
 
 permissions:
   contents: read
