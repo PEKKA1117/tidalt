@@ -4,3 +4,13 @@ tidal-cache.db
 tidalt-linux-*
 /debian/
 dist/
+
+# OMC session state
+.omc/
+
+# makepkg build artefacts (packaging/arch-fork/PKGBUILD clones and builds here)
+packaging/arch-fork/src/
+packaging/arch-fork/pkg/
+packaging/arch-fork/tidalt/
+packaging/arch-fork/*.pkg.tar.zst
+packaging/arch-fork/*.log
