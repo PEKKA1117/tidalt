@@ -324,9 +324,9 @@ func (m Model) updateListKeys(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	case "x":
 		if m.section == SecQueue {
-			m.removeFromQueue(m.cursor)
+			removeCmd := m.removeFromQueue(m.cursor)
 			cmd := m.syncQueueCover()
-			return m, cmd
+			return m, tea.Batch(removeCmd, cmd)
 		}
 		return m, nil
 	case "C":

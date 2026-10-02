@@ -6,33 +6,72 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/Benehiko/tidalt/v4/internal/mpris"
 	"github.com/Benehiko/tidalt/v4/internal/tidal"
 )
 
+// sendEnqueueCmd forwards a single queue addition to the parent instance. The
+// local queue is deliberately left alone: the parent inserts relative to the
+// track it is actually playing, which a client — whose cursor is just a browse
+// position — cannot compute, and the next parentStateMsg poll brings the
+// authoritative list back.
+func sendEnqueueCmd(mc *mpris.Client, t tidal.Track, next bool) tea.Cmd {
+	trackJSON := mpris.MarshalTracks(t)
+	return func() tea.Msg {
+		if err := mc.SendEnqueue(trackJSON, next); err != nil {
+			return errMsg(err)
+		}
+		return nil
+	}
+}
+
 // enqueueEnd appends a track to the end of the live queue and marks it edited.
-func (m *Model) enqueueEnd(t tidal.Track) {
+// In client mode the parent owns the queue, so the addition is forwarded to it
+// instead; the returned command is nil when there is nothing to send.
+func (m *Model) enqueueEnd(t tidal.Track) tea.Cmd {
+	if m.clientMode {
+		return sendEnqueueCmd(m.mprisClient, t, false)
+	}
 	m.tracksOrder = append(m.tracksOrder, t)
 	m.tracks = append(m.tracks, t)
 	m.queueDirty = true
 	_ = m.store.SavePlaylist(m.tracks)
+	return nil
 }
 
 // enqueueNext inserts a track immediately after the current cursor position so
-// it plays next, marking the queue edited.
-func (m *Model) enqueueNext(t tidal.Track) {
+// it plays next, marking the queue edited. Forwarded to the parent in client
+// mode, as enqueueEnd is.
+func (m *Model) enqueueNext(t tidal.Track) tea.Cmd {
+	if m.clientMode {
+		return sendEnqueueCmd(m.mprisClient, t, true)
+	}
 	pos := min(m.cursor+1, len(m.tracks))
 	m.tracks = insertTrack(m.tracks, pos, t)
 	m.tracksOrder = append(m.tracksOrder, t)
 	m.queueDirty = true
 	_ = m.store.SavePlaylist(m.tracks)
+	return nil
 }
 
-// playListIntoQueue loads a list of tracks into the live queue (as an ad-hoc,
-// unsaved queue) and plays from index i. Used by sections that play through a
-// list — Favorite Songs, Recently Played, etc.
-func (m *Model) playListIntoQueue(list []tidal.Track, i int) tea.Cmd {
+// markLocalQueue flags a freshly loaded queue as one the client owns but has
+// not handed to the parent yet. It does two things in client mode: doPlayTrack
+// sends the whole list (SendPlaylist) instead of the single selected track
+// (SendTrackID), and parentStateMsg stops mirroring the parent's — still
+// stale — queue back over it. Without it a playlist collapses to whichever
+// track was selected. No-op when this instance is the player itself.
+func (m *Model) markLocalQueue() {
+	if m.clientMode {
+		m.localPlaylist = true
+	}
+}
+
+// loadListIntoQueue replaces the live queue with an ad-hoc, unsaved list and
+// puts the cursor on index i. Reports false when i is out of range, in which
+// case the queue is left untouched.
+func (m *Model) loadListIntoQueue(list []tidal.Track, i int) bool {
 	if i < 0 || i >= len(list) {
-		return nil
+		return false
 	}
 	m.tracksOrder = append([]tidal.Track(nil), list...)
 	m.shuffleMode = ShuffleOff
@@ -41,7 +80,18 @@ func (m *Model) playListIntoQueue(list []tidal.Track, i int) tea.Cmd {
 	m.queuePlaylistUUID = ""
 	m.queueDirty = false
 	m.cursor = i
+	m.markLocalQueue()
 	_ = m.store.SavePlaylist(m.tracks)
+	return true
+}
+
+// playListIntoQueue loads a list of tracks into the live queue (as an ad-hoc,
+// unsaved queue) and plays from index i. Used by sections that play through a
+// list — Favorite Songs, Recently Played, etc.
+func (m *Model) playListIntoQueue(list []tidal.Track, i int) tea.Cmd {
+	if !m.loadListIntoQueue(list, i) {
+		return nil
+	}
 	track := m.tracks[i]
 	_ = m.store.CacheTrack(track.ID, track)
 	return m.playTrackCmd(track)
@@ -63,9 +113,21 @@ func (m *Model) clearQueue() {
 // removeFromQueue drops the track at index i from the live queue, marks the
 // queue edited, and keeps the cursor in range. The currently-playing audio is
 // unaffected (it is already buffered); only the queue list changes.
-func (m *Model) removeFromQueue(i int) {
+//
+// In client mode the removal is forwarded to the parent by track ID and the
+// local list is left to the next poll, as the enqueue functions do.
+func (m *Model) removeFromQueue(i int) tea.Cmd {
 	if i < 0 || i >= len(m.tracks) {
-		return
+		return nil
+	}
+	if m.clientMode {
+		mc, trackID := m.mprisClient, m.tracks[i].ID
+		return func() tea.Msg {
+			if err := mc.SendDequeue(trackID); err != nil {
+				return errMsg(err)
+			}
+			return nil
+		}
 	}
 	removed := m.tracks[i]
 	m.tracks = append(m.tracks[:i], m.tracks[i+1:]...)
@@ -84,6 +146,21 @@ func (m *Model) removeFromQueue(i int) {
 	}
 	m.queueDirty = true
 	_ = m.store.SavePlaylist(m.tracks)
+	return nil
+}
+
+// removeFirstByID drops the first queue entry with this track ID. It is how a
+// client's removal is applied on the parent, where the queue may be held in a
+// different order than the client displays. A queue holding the same track
+// twice loses the earlier copy; the alternative, addressing by position, is
+// wrong across two independently shuffled lists.
+func (m *Model) removeFirstByID(id int) {
+	for i := range m.tracks {
+		if m.tracks[i].ID == id {
+			m.removeFromQueue(i)
+			return
+		}
+	}
 }
 
 // loadQueueFromPlaylist replaces the live queue with a playlist's tracks and
@@ -95,6 +172,7 @@ func (m *Model) loadQueueFromPlaylist(tracks []tidal.Track, pl tidal.Playlist) {
 	m.queueSource = "playlist:" + pl.Title
 	m.queuePlaylistUUID = pl.UUID
 	m.queueDirty = false
+	m.markLocalQueue()
 	_ = m.store.SavePlaylist(m.tracks)
 }
 
