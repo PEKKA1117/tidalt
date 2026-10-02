@@ -28,7 +28,7 @@ func kittyCoverModel(t *testing.T) (Model, *bytes.Buffer) {
 	m.cursor = 1
 	m.coverImage = img
 	m.coverCacheKey = "cover-a"
-	m.kittySupported = true
+	m.gfxMode = coverKitty
 	m.ttyOut = buf
 	m.kitty = &kittyState{}
 	return m, buf
@@ -47,7 +47,7 @@ const (
 func TestKittyCoverDrawsWithoutViewChange(t *testing.T) {
 	m, buf := kittyCoverModel(t)
 
-	m.syncKittyCover()
+	m.syncCover()
 	if !strings.Contains(buf.String(), kittyPlace) {
 		t.Fatalf("no draw escape written to the TTY on first sync")
 	}
@@ -57,7 +57,7 @@ func TestKittyCoverDrawsWithoutViewChange(t *testing.T) {
 
 	// A second sync with nothing changed must stay silent.
 	buf.Reset()
-	m.syncKittyCover()
+	m.syncCover()
 	if buf.Len() != 0 {
 		t.Errorf("idle sync wrote %d bytes, want 0", buf.Len())
 	}
@@ -69,12 +69,12 @@ func TestKittyCoverDrawsWithoutViewChange(t *testing.T) {
 // stays on screen — the user saw two and then three stacked covers.
 func TestKittyCoverResizeClearsOldPlacement(t *testing.T) {
 	m, buf := kittyCoverModel(t)
-	m.syncKittyCover()
+	m.syncCover()
 
 	buf.Reset()
 	m.width, m.height = 100, 32
 	m.kitty.stale = true // set by the WindowSizeMsg handler
-	m.syncKittyCover()
+	m.syncCover()
 
 	out := buf.String()
 	if !strings.Contains(out, kittyClearCover()) {
@@ -95,7 +95,7 @@ func TestKittyCoverResizeClearsOldPlacement(t *testing.T) {
 // re-place the image the terminal already holds instead of re-transmitting it.
 func TestKittyCoverResizeReusesUpload(t *testing.T) {
 	m, buf := kittyCoverModel(t)
-	m.syncKittyCover()
+	m.syncCover()
 	if !strings.Contains(buf.String(), kittyUpload) {
 		t.Fatalf("first draw did not upload the image")
 	}
@@ -103,7 +103,7 @@ func TestKittyCoverResizeReusesUpload(t *testing.T) {
 	buf.Reset()
 	m.width, m.height = 100, 32
 	m.kitty.stale = true
-	m.syncKittyCover()
+	m.syncCover()
 
 	out := buf.String()
 	if strings.Contains(out, kittyUpload) {
@@ -119,7 +119,7 @@ func TestKittyCoverResizeReusesUpload(t *testing.T) {
 	// A genuinely new cover must still upload.
 	buf.Reset()
 	m.coverCacheKey = "cover-b"
-	m.syncKittyCover()
+	m.syncCover()
 	if !strings.Contains(buf.String(), kittyUpload) {
 		t.Errorf("a new cover did not upload fresh image data")
 	}
@@ -145,7 +145,7 @@ func TestKittyCoverConcurrentSyncsSerialize(t *testing.T) {
 			mm.width, mm.height = 200-i, 60-i
 			mm.coverCacheKey = fmt.Sprintf("cover-%d", i)
 			<-start // release together to maximise overlap
-			mm.syncKittyCover()
+			mm.syncCover()
 		})
 	}
 	close(start)
@@ -181,11 +181,11 @@ func TestKittyCoverHiddenWhenTerminalTooSmall(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m, buf := kittyCoverModel(t)
-			m.syncKittyCover()
+			m.syncCover()
 
 			buf.Reset()
 			m.width, m.height = tc.w, tc.h
-			m.syncKittyCover()
+			m.syncCover()
 
 			out := buf.String()
 			if !strings.Contains(out, kittyClearCover()) {
@@ -197,7 +197,7 @@ func TestKittyCoverHiddenWhenTerminalTooSmall(t *testing.T) {
 
 			// Still hidden, and silent, on the next sync.
 			buf.Reset()
-			m.syncKittyCover()
+			m.syncCover()
 			if buf.Len() != 0 {
 				t.Errorf("hidden cover wrote %d bytes on idle sync, want 0", buf.Len())
 			}
@@ -210,9 +210,9 @@ func TestKittyCoverHiddenWhenTerminalTooSmall(t *testing.T) {
 func TestKittyCoverDisabledWritesNothing(t *testing.T) {
 	m, buf := kittyCoverModel(t)
 	m = m.WithoutGraphics()
-	m.ttyOut = buf // prove kittySupported alone is enough to keep it silent
+	m.ttyOut = buf // prove the mode alone is enough to keep it silent
 
-	m.syncKittyCover()
+	m.syncCover()
 	if buf.Len() != 0 {
 		t.Errorf("WithoutGraphics model wrote %d bytes, want 0", buf.Len())
 	}

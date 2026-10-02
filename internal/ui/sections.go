@@ -80,12 +80,26 @@ func (m *Model) renderQueueCover(t Theme, w, h int) string {
 	panelW, imgRows := m.queueCoverDims(w, h)
 
 	var b strings.Builder
-	if m.useKittyCover() {
+	switch {
+	case m.useGraphicsCover() && m.gfxMode == coverKitty:
+		// Kitty draws in a layer above the cells, so whatever is put here is
+		// hidden anyway. Blank is the cheapest thing to render and to diff.
 		for range imgRows {
 			b.WriteString(strings.Repeat(" ", panelW))
 			b.WriteByte('\n')
 		}
-	} else {
+	case m.useGraphicsCover():
+		// Sixel pixels live in the cells, and the renderer rewrites one of
+		// these lines whenever the track list beside it changes — blanking the
+		// image there until the reconcile repaints it a frame later. Block art
+		// underneath means that gap shows a coarse version of the same cover
+		// instead of bare terminal background, which is the difference between
+		// a flicker and a hole.
+		for _, ln := range blockArtLines(m.coverImage, panelW, imgRows) {
+			b.WriteString(ln)
+			b.WriteByte('\n')
+		}
+	default:
 		cover := coverPanelLines(m.coverImage, "", "", "", panelW, imgRows)
 		for _, ln := range cover {
 			b.WriteString(ln)
@@ -235,10 +249,10 @@ func (m *Model) renderArtistAlbumPane(t Theme, w, h int) string {
 	return renderListPanel(t, title, true, rows, m.artistAlbumCursor, w, h)
 }
 
-// useKittyCover reports whether the Now-Playing cover should be drawn with the
-// Kitty graphics protocol (written straight to the TTY) instead of block art. Kitty is
-// only safe when no overlay is covering the pane, since the popup would not
-// hide a terminal-drawn image.
-func (m *Model) useKittyCover() bool {
-	return m.kittySupported && m.coverImage != nil && m.overlay == OverlayNone
+// useGraphicsCover reports whether the cover should be drawn by the terminal
+// (written straight to the TTY) instead of as block art inside the text frame.
+// Either protocol is only safe when no overlay is covering the pane, since the
+// popup is text and would not hide a terminal-drawn image.
+func (m *Model) useGraphicsCover() bool {
+	return m.gfxMode != coverBlocks && m.coverImage != nil && m.overlay == OverlayNone
 }
