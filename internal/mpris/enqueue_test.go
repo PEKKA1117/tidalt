@@ -84,3 +84,26 @@ func TestDequeueEmitsEvent(t *testing.T) {
 		t.Fatal("no event was queued")
 	}
 }
+
+// TestSetShuffleEmitsEvent asserts a client's shuffle change reaches the UI
+// loop as a CmdSetShuffle carrying the mode unchanged.
+func TestSetShuffleEmitsEvent(t *testing.T) {
+	ch := make(chan Event, 1)
+	app := &tidalApp{ch: ch}
+
+	if dErr := app.SetShuffle("Random"); dErr != nil {
+		t.Fatalf("SetShuffle returned %v", dErr)
+	}
+
+	select {
+	case ev := <-ch:
+		if ev.Cmd != CmdSetShuffle {
+			t.Errorf("Cmd = %v, want CmdSetShuffle", ev.Cmd)
+		}
+		if ev.ShuffleMode != "Random" {
+			t.Errorf("ShuffleMode = %q, want %q", ev.ShuffleMode, "Random")
+		}
+	default:
+		t.Fatal("no event was queued")
+	}
+}

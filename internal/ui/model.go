@@ -424,6 +424,60 @@ func (m *Model) applyShuffle() {
 	m.shufflePlayed = nil
 }
 
+// parseShuffleMode is the inverse of ShuffleMode.String, used to read the mode
+// a client receives over D-Bus. Anything unrecognised is ShuffleOff.
+func parseShuffleMode(s string) ShuffleMode {
+	switch s {
+	case ShuffleRandom.String():
+		return ShuffleRandom
+	case ShuffleFisherYates.String():
+		return ShuffleFisherYates
+	default:
+		return ShuffleOff
+	}
+}
+
+// setShuffle switches the queue to mode and keeps the cursor on the playing
+// track, so auto-advance carries on from it rather than from the top of the
+// reordered list. In ShuffleFisherYates the playing track is moved to the
+// front, leaving every other track still ahead of it. Pushes the new order to
+// clients.
+func (m *Model) setShuffle(mode ShuffleMode) {
+	m.shuffleMode = mode
+	m.applyShuffle()
+	m.cursor = 0
+	if m.currentTrack != nil {
+		for i := range m.tracks {
+			if m.tracks[i].ID != m.currentTrack.ID {
+				continue
+			}
+			if mode == ShuffleFisherYates {
+				t := m.tracks[i]
+				copy(m.tracks[1:i+1], m.tracks[:i])
+				m.tracks[0] = t
+			} else {
+				m.cursor = i
+			}
+			break
+		}
+	}
+	m.pushState()
+}
+
+// sameTrackIDs reports whether two queues hold the same tracks in the same
+// order.
+func sameTrackIDs(a, b []tidal.Track) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].ID != b[i].ID {
+			return false
+		}
+	}
+	return true
+}
+
 // prevIndex returns the index of the previously played track. In shuffle
 // modes it pops from the play history stack; otherwise it returns cursor-1.
 // Returns -1 if there is no previous track.
@@ -480,6 +534,22 @@ func (m *Model) nextIndex() int {
 	}
 }
 
+// playlistHandover returns the local queue a client sends to the parent and
+// the index of startID within it. It is the unshuffled order: the parent
+// stores what it is sent as its original order and starts it unshuffled, so a
+// shuffled list here would become an "original" order that turning shuffle off
+// can never undo. The index is looked up in the same list that is sent, and is
+// 0 when startID is not queued.
+func (m *Model) playlistHandover(startID int) (tracksJSON string, startIndex int) {
+	for i := range m.tracksOrder {
+		if m.tracksOrder[i].ID == startID {
+			startIndex = i
+			break
+		}
+	}
+	return mpris.MarshalTracks(m.tracksOrder), startIndex
+}
+
 // playTrackCmd returns a tea.Cmd that starts playback of track.
 // In normal mode it streams via the local player and returns nowPlayingMsg.
 // In client mode it resolves the stream URL and forwards it to the parent
@@ -497,16 +567,8 @@ func (m *Model) playNextTrackCmd(track tidal.Track) tea.Cmd {
 func (m *Model) doPlayTrack(track tidal.Track, playFn func(string) (<-chan struct{}, error)) tea.Cmd {
 	if m.clientMode {
 		mc := m.mprisClient
-		if m.localPlaylist && len(m.tracks) > 0 {
-			// Find the index of this track in the local playlist.
-			idx := 0
-			for i := range m.tracks {
-				if m.tracks[i].ID == track.ID {
-					idx = i
-					break
-				}
-			}
-			tracksJSON := mpris.MarshalTracks(m.tracks)
+		if m.localPlaylist && len(m.tracksOrder) > 0 {
+			tracksJSON, idx := m.playlistHandover(track.ID)
 			m.localPlaylist = false
 			return func() tea.Msg {
 				if err := mc.SendPlaylist(tracksJSON, idx); err != nil {
@@ -1031,10 +1093,19 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			var tracks []tidal.Track
 			if err := json.Unmarshal([]byte(ps.PlaylistJSON), &tracks); err == nil && len(tracks) > 0 {
 				// Only replace the list when it actually changed to avoid
-				// clobbering the cursor position on every tick.
-				if len(tracks) != len(m.tracks) || (len(tracks) > 0 && tracks[0].ID != m.tracks[0].ID) {
+				// clobbering the cursor position on every tick. The whole ID
+				// sequence is compared: a reshuffle on the parent keeps the
+				// length and can keep the first track.
+				if !sameTrackIDs(tracks, m.tracks) {
+					// The parent publishes its queue in the order it will
+					// play it, already shuffled. Show it exactly as sent:
+					// running applyShuffle here would shuffle it a second
+					// time, so the client would show an order the parent
+					// is not playing — and, since that order never matches
+					// the next poll, reshuffle it again every tick.
 					m.tracksOrder = tracks
-					m.applyShuffle()
+					m.tracks = append([]tidal.Track(nil), tracks...)
+					m.shufflePlayed = nil
 					// The parent's queue can shrink under us — a removal made
 					// here arrives as a shorter list — so the cursor has to be
 					// pulled back into range.
@@ -1063,14 +1134,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.activeDevice = ps.ActiveDevice
 		m.bitPerfect = ps.BitPerfect
 		if ps.ShuffleMode != "" {
-			switch ps.ShuffleMode {
-			case "Random":
-				m.shuffleMode = ShuffleRandom
-			case "Shuffle":
-				m.shuffleMode = ShuffleFisherYates
-			default:
-				m.shuffleMode = ShuffleOff
-			}
+			m.shuffleMode = parseShuffleMode(ps.ShuffleMode)
 		}
 		if coverCmd != nil {
 			return m, coverCmd
@@ -1453,6 +1517,8 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case mpris.CmdDequeue:
 			m.removeFirstByID(ev.TrackID)
 			m.pushState()
+		case mpris.CmdSetShuffle:
+			m.setShuffle(parseShuffleMode(ev.ShuffleMode))
 		case mpris.CmdSetDevice:
 			m.currentDevice = ev.Device
 			m.player.SetDevice(ev.Device)

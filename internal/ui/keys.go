@@ -380,7 +380,8 @@ func (m Model) commonKeys(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "0":
 		m.setVolume(m.volume + 5)
 	case "s":
-		m.cycleShuffle()
+		cmd := m.cycleShuffle()
+		return m, cmd
 	case "S":
 		return m.saveQueueAsNew()
 	case ">", ".":
@@ -420,17 +421,32 @@ func (m *Model) setVolume(v float64) {
 	_ = m.store.SaveVolume(m.volume)
 }
 
-func (m *Model) cycleShuffle() {
+// cycleShuffle advances to the next shuffle mode. In client mode the parent
+// owns the queue and its order, so the change is forwarded to it and nothing
+// is reordered locally: the next parentStateMsg brings back both the new mode
+// and the order the parent will actually play. Reshuffling here as well would
+// leave the two instances showing different queues.
+func (m *Model) cycleShuffle() tea.Cmd {
+	var next ShuffleMode
 	switch m.shuffleMode {
 	case ShuffleOff:
-		m.shuffleMode = ShuffleFisherYates
+		next = ShuffleFisherYates
 	case ShuffleFisherYates:
-		m.shuffleMode = ShuffleRandom
+		next = ShuffleRandom
 	default:
-		m.shuffleMode = ShuffleOff
+		next = ShuffleOff
 	}
-	m.applyShuffle()
-	m.cursor = 0
+	if m.clientMode {
+		mc, mode := m.mprisClient, next.String()
+		return func() tea.Msg {
+			if err := mc.SendShuffle(mode); err != nil {
+				return errMsg(err)
+			}
+			return nil
+		}
+	}
+	m.setShuffle(next)
+	return nil
 }
 
 func (m Model) togglePlay() (tea.Model, tea.Cmd) {

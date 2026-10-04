@@ -39,6 +39,7 @@ const (
 	CmdSetDevice    // Device is in Event.Device
 	CmdEnqueue      // TrackJSON and EnqueueNext are in Event
 	CmdDequeue      // TrackID is in Event
+	CmdSetShuffle   // ShuffleMode is in Event
 )
 
 // Event is sent on the Commands channel for every media key press or URL
@@ -52,6 +53,7 @@ type Event struct {
 	Device             string // non-empty only for CmdSetDevice
 	TrackJSON          string // non-empty only for CmdEnqueue
 	EnqueueNext        bool   // for CmdEnqueue: insert after the playing track rather than append
+	ShuffleMode        string // for CmdSetShuffle: "Off", "Shuffle", or "Random"
 }
 
 // PlayerState is the snapshot of playback state the parent broadcasts.
@@ -251,6 +253,13 @@ func (c *Client) SendDequeue(trackID int) error {
 	return c.obj.Call(appIface+".Dequeue", 0, trackID).Err
 }
 
+// SendShuffle asks the running instance to switch to a shuffle mode ("Off",
+// "Shuffle", or "Random"). The parent owns the queue and its order, so the
+// shuffle itself happens there and reaches the client on the next GetState.
+func (c *Client) SendShuffle(mode string) error {
+	return c.obj.Call(appIface+".SetShuffle", 0, mode).Err
+}
+
 // SendPlayPause toggles play/pause on the running instance.
 func (c *Client) SendPlayPause() error {
 	return c.obj.Call("org.mpris.MediaPlayer2.Player.PlayPause", 0).Err
@@ -432,6 +441,16 @@ func (a *tidalApp) Dequeue(trackID int) *dbus.Error {
 func (a *tidalApp) SetDevice(hwName string) *dbus.Error {
 	select {
 	case a.ch <- Event{Cmd: CmdSetDevice, Device: hwName}:
+	default:
+	}
+	return nil
+}
+
+// SetShuffle is called by a client instance to change the shuffle mode on the
+// running server, which reorders its own queue.
+func (a *tidalApp) SetShuffle(mode string) *dbus.Error {
+	select {
+	case a.ch <- Event{Cmd: CmdSetShuffle, ShuffleMode: mode}:
 	default:
 	}
 	return nil
@@ -650,6 +669,9 @@ const introspectionXML = `<!DOCTYPE node PUBLIC
     </method>
     <method name="SetDevice">
       <arg name="hwName" type="s" direction="in"/>
+    </method>
+    <method name="SetShuffle">
+      <arg name="mode" type="s" direction="in"/>
     </method>
     <method name="GetState">
       <arg name="currentTrackJSON" type="s" direction="out"/>
