@@ -81,3 +81,21 @@ jobs:
           curl -LO https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}/PKGBUILD
           makepkg -si
           \`\`\`"
+
+      - name: Prune old releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEEP: 5
+        run: |
+          # Only arch-* releases are touched; anything else in the repo is left
+          # alone. --cleanup-tag drops the tag too, so tags don't pile up
+          # behind the deleted releases.
+          gh release list --limit 1000 --json tagName,createdAt |
+          jq -r --argjson keep "$KEEP" '
+            [.[] | select(.tagName | startswith("arch-"))]
+            | sort_by(.createdAt) | reverse
+            | .[$keep:][] | .tagName' |
+          while read -r tag; do
+            echo "deleting $tag"
+            gh release delete "$tag" --cleanup-tag --yes
+          done
