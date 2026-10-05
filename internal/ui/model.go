@@ -112,6 +112,16 @@ type Model struct {
 	searchCursor  int
 	searchLoading bool
 
+	// In-list find (vim "/"): findInput is the prompt, open while findActive.
+	// findQuery is the last committed query that n/N repeat; findOrigin is the
+	// cursor to restore when the prompt is cancelled. pendingG holds the first
+	// "g" of a "gg" motion.
+	findInput  textinput.Model
+	findActive bool
+	findQuery  string
+	findOrigin int
+	pendingG   bool
+
 	// Artist view — the selected artist's albums plus two synthetic quick-play
 	// rows ("Play all tracks", "Top tracks"). Reached from the action sheet.
 	artistID      int // 0 = none
@@ -1556,6 +1566,8 @@ func (m Model) View() string {
 
 	parts := []string{body}
 	switch {
+	case m.findActive:
+		parts = append(parts, t.Row.Render(" "+truncateStr(m.findInput.View(), m.width-2)))
 	case m.toast != "":
 		parts = append(parts, t.GreenT.Render(" "+truncateStr(m.toast, m.width-2)))
 	case m.errText != "":
@@ -1864,10 +1876,14 @@ func (m *Model) footerKeyBar(t Theme, w int) string {
 		{"/", "Search"},
 		{"q", "Quit"},
 	}
+	if m.focusMain {
+		base[6] = [2]string{"/", "Find"}
+	}
 	switch m.section {
 	case SecQueue:
 		base = [][2]string{
 			{"j/k", "Move"},
+			{"/", "Find"},
 			{"↵", "Play"},
 			{"x", "Remove"},
 			{"C", "Clear"},

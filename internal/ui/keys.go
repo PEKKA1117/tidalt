@@ -25,10 +25,17 @@ const (
 // handleKey is the top-level key dispatcher. Order of precedence:
 //  1. global keys (quit, command palette, theme cycle, device overlay)
 //  2. an active overlay (command palette / action sheet / device select)
-//  3. a focused search input
-//  4. sidebar navigation (when the sidebar holds focus)
-//  5. the active section's main-pane handler
+//  3. an open in-list find prompt (only ctrl+c is global while it is open)
+//  4. a focused search input
+//  5. sidebar navigation (when the sidebar holds focus)
+//  6. the active section's main-pane handler
 func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// The find prompt owns every printable key, including the global
+	// shortcuts (q, t, d, :), so check it before them.
+	if m.findActive && m.overlay == OverlayNone && k.String() != "ctrl+c" {
+		return m.updateFind(k)
+	}
+
 	if cmd, done := m.handleGlobalKey(&m, k); done {
 		return m, cmd
 	}
@@ -274,6 +281,10 @@ func (m Model) updateSection(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.focusMain = false
 		}
 		return m, nil
+	}
+
+	if next, cmd, handled := m.updateListMotion(k); handled {
+		return next, cmd
 	}
 
 	if m.showArtist {
