@@ -45,4 +45,5 @@ BubbleTea TUI model (Model/Update/View).
 - Scrollable track and mix lists with a visible window helper
 - Artist view (`StateArtistAlbums`): opened with `a` on any track; lists the artist's albums plus "Play all tracks" / "Top tracks" entries, loading the chosen tracks into the browse queue
 - Progress bar with playback position, volume display, and device label
+- Vim-style list keys in every main-pane list (`listfind.go`): `/` opens an incremental, case-insensitive find over the active list (tracks match title or artist), `Enter` keeps the match, `Esc` restores the cursor; `n`/`N` repeat the last find with wrap-around; `gg`/`G` jump to top/bottom. `activeList` maps each section/sub-view to its labels and cursor; the open prompt is checked before global keys so `q`/`t`/`d`/`:` type literally
 - Auto-advances to the next track in the queue when playback finishes
