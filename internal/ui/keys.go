@@ -2,7 +2,9 @@ package ui
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/atotto/clipboard"
@@ -22,36 +24,55 @@ const (
 	keyRight = "right"
 )
 
-// handleKey is the top-level key dispatcher. Order of precedence:
-//  1. global keys (quit, command palette, theme cycle, device overlay)
-//  2. an active overlay (command palette / action sheet / device select)
-//  3. an open in-list find prompt (only ctrl+c is global while it is open)
-//  4. a focused search input
-//  5. sidebar navigation (when the sidebar holds focus)
-//  6. the active section's main-pane handler
-func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// The find prompt owns every printable key, including the global
-	// shortcuts (q, t, d, :), so check it before them.
-	if m.findActive && m.overlay == OverlayNone && k.String() != "ctrl+c" {
-		return m.updateFind(k)
+// keys returns the active keymap; models built without one (tests, the
+// daemon before config load) use the tidalt preset.
+func (m *Model) keys() *Keymap {
+	if m.keymap == nil {
+		return defaultKeymap
 	}
+	return m.keymap
+}
 
-	if cmd, done := m.handleGlobalKey(&m, k); done {
+// handleKey is the top-level key dispatcher. Order of precedence:
+//  1. ctrl+c always quits
+//  2. an open in-list find prompt, a text-input overlay (command palette,
+//     Spotify import) or a focused search input owns every other key
+//  3. any other overlay, after the few global actions that work over it
+//  4. key sequences: a pending chord prefix waits for its next key; a
+//     global action (pages, transport, theme, device, help, quit) runs
+//     straight away
+//  5. sidebar navigation (when the sidebar holds focus)
+//  6. the active section's main-pane handler, which resolves list and track
+//     actions through the keymap for anything it does not handle itself
+func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := k.String()
+	if key == "ctrl+c" {
+		cmd := m.quit()
 		return m, cmd
 	}
 
+	if m.findActive && m.overlay == OverlayNone {
+		return m.updateFind(k)
+	}
+
 	if m.overlay != OverlayNone {
+		if !m.overlayTakesText() {
+			if act, ok := m.keys().Lookup(key); ok && overlayGlobal(act) {
+				return m.runAction(act)
+			}
+		}
 		return m.updateOverlay(k)
 	}
 
-	// A focused search input consumes typing; global controls already handled.
+	// A focused search input consumes typing; Enter and the arrows still
+	// reach the section handler (search nav / submit).
 	if m.searchInput.Focused() {
-		switch k.String() {
+		switch key {
 		case keyEsc:
 			m.searchInput.Blur()
 			return m, nil
 		case keyEnter, keyUp, keyDown:
-			// fall through to section handler (search nav / submit)
+			return m.routeKey(k)
 		default:
 			var cmd tea.Cmd
 			m.searchInput, cmd = m.searchInput.Update(k)
@@ -59,50 +80,127 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	if len(m.pendingKeys) > 0 && key == keyEsc {
+		m.pendingKeys = nil
+		return m, nil
+	}
+	seq := append(slices.Clone(m.pendingKeys), key)
+	name := strings.Join(seq, " ")
+	if m.keys().IsPrefix(name) {
+		m.pendingKeys = seq
+		return m, nil
+	}
+	m.pendingKeys = nil
+	act, bound := m.keys().Lookup(name)
+	if len(seq) > 1 {
+		if !bound {
+			return m, nil // an unknown chord is dropped, as in vim
+		}
+		// Route the completed chord as one key whose String() is the whole
+		// sequence, so section handlers resolve it like any single key.
+		k = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(name)}
+	}
+	if bound && m.isGlobalAction(act, name) {
+		return m.runAction(act)
+	}
+	return m.routeKey(k)
+}
+
+// routeKey hands a key to the sidebar or the active section.
+func (m Model) routeKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if !m.focusMain {
 		return m.updateSidebar(k)
 	}
 	return m.updateSection(k)
 }
 
-// handleGlobalKey handles keys that work regardless of section/overlay. It
-// returns (cmd, true) when it consumed the key. It mutates through the pointer.
-func (m *Model) handleGlobalKey(_ *Model, k tea.KeyMsg) (tea.Cmd, bool) {
-	switch k.String() {
-	case "ctrl+c":
-		return m.quit(), true
-	case "q":
-		// In a focused text input, "q" is literal text — don't quit.
-		if m.searchInput.Focused() || m.overlay == OverlayCommandPalette {
-			return nil, false
-		}
-		return m.quit(), true
+// overlayTakesText reports whether the open overlay is a text input that must
+// receive every printable key.
+func (m *Model) overlayTakesText() bool {
+	return m.overlay == OverlayCommandPalette || m.overlay == OverlayImportSpotify
+}
 
-	case "ctrl+p", ":":
-		if m.overlay == OverlayCommandPalette {
-			return nil, true
-		}
-		if m.searchInput.Focused() {
-			return nil, false
-		}
-		m.openCommandPalette()
-		return nil, true
-
-	case "t":
-		if m.searchInput.Focused() || m.section == SecSettings {
-			return nil, false // Settings owns "t"; input treats it as text
-		}
-		m.cycleTheme()
-		return nil, true
-
-	case "d":
-		if m.searchInput.Focused() || m.overlay != OverlayNone || m.section == SecSearch {
-			return nil, false
-		}
-		m.openDeviceSelect()
-		return nil, true
+// overlayGlobal lists the actions that still work while a (non-text) overlay
+// is open.
+func overlayGlobal(a Action) bool {
+	switch a {
+	case ActQuit, ActOpenCommandPalette, ActCycleTheme:
+		return true
+	default:
+		return false
 	}
-	return nil, false
+}
+
+// structuralKeys move the cursor or focus in the sidebar and sections. A
+// playback action bound to one of them (the tidalt preset's Space, ← and →)
+// only runs where the section handler lets it through, never globally.
+var structuralKeys = map[string]bool{
+	keyUp: true, keyDown: true, keyLeft: true, keyRight: true,
+	keyEnter: true, keyEsc: true, " ": true,
+	"h": true, "j": true, "k": true, "l": true,
+}
+
+// isGlobalAction reports whether act, bound to seq, runs regardless of which
+// pane has focus. List and track actions depend on the selection, so they are
+// left to the section handlers.
+func (m *Model) isGlobalAction(act Action, seq string) bool {
+	switch act {
+	case ActCycleTheme:
+		return m.section != SecSettings // the theme picker cycles its own cursor
+	case ActSwitchDevice:
+		return m.section != SecSearch
+	default:
+	}
+	switch actionIndex[act].group {
+	case groupPages, groupApp:
+		return true
+	case groupPlayback:
+		return !structuralKeys[seq]
+	default:
+		return false
+	}
+}
+
+// runAction performs a bound action. List actions are handled by
+// updateListMotion, which needs the active list; here they are no-ops.
+func (m Model) runAction(act Action) (tea.Model, tea.Cmd) {
+	switch act {
+	case ActQuit:
+		cmd := m.quit()
+		return m, cmd
+	case ActOpenCommandPalette:
+		if m.overlay != OverlayCommandPalette {
+			m.openCommandPalette()
+		}
+	case ActOpenCommandHelp:
+		m.overlay = OverlayHelp
+		m.helpScroll = 0
+	case ActCycleTheme:
+		m.cycleTheme()
+	case ActSwitchDevice:
+		m.openDeviceSelect()
+	case ActSwitchTheme:
+		return m.selectSection(SecSettings)
+	case ActQueue:
+		return m.selectSection(SecQueue)
+	case ActLikedTrackPage:
+		return m.selectSection(SecFavSongs)
+	case ActRecentlyPlayedTrackPage:
+		return m.selectSection(SecHistory)
+	case ActMixesPage:
+		return m.selectSection(SecMixes)
+	case ActSearchPage:
+		return m.selectSection(SecSearch)
+	case ActBrowseUserPlaylists:
+		return m.selectSection(SecPlaylists)
+	case ActBrowseUserFollowedArtists:
+		return m.selectSection(SecFavArtists)
+	case ActBrowseUserSavedAlbums:
+		return m.selectSection(SecFavAlbums)
+	default:
+		return m.runTrackAction(act)
+	}
+	return m, nil
 }
 
 func (m *Model) quit() tea.Cmd {
@@ -368,57 +466,102 @@ func (m Model) updateListKeys(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m.commonKeys(k)
 }
 
-// commonKeys handles keys shared by every main-pane context (playback transport,
-// volume, shuffle, track actions). Returns the model unchanged for unknown keys.
+// commonKeys resolves a key the section handler did not use through the
+// keymap and runs the playback or track action bound to it.
 func (m Model) commonKeys(k tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch k.String() {
-	case " ":
+	act, ok := m.keys().Lookup(k.String())
+	if !ok {
+		return m, nil
+	}
+	switch actionIndex[act].group {
+	case groupPlayback, groupTrack:
+		return m.runTrackAction(act)
+	default:
+		return m, nil
+	}
+}
+
+// runTrackAction performs a playback or track action.
+func (m Model) runTrackAction(act Action) (tea.Model, tea.Cmd) {
+	switch act {
+	case ActResumePause:
 		return m.togglePlay()
-	case keyLeft:
-		if !m.clientMode && m.player != nil && m.currentTrack != nil {
-			if err := m.player.Seek(m.currPos - 10); err != nil {
-				m.errText = err.Error()
-			}
-		}
-	case keyRight:
-		if !m.clientMode && m.player != nil && m.currentTrack != nil {
-			if err := m.player.Seek(m.currPos + 10); err != nil {
-				m.errText = err.Error()
-			}
-		}
-	case "9":
+	case ActSeekBackward:
+		m.seekTo(m.currPos - 10)
+	case ActSeekForward:
+		m.seekTo(m.currPos + 10)
+	case ActSeekStart:
+		m.seekTo(0)
+	case ActVolumeDown:
 		m.setVolume(m.volume - 5)
-	case "0":
+	case ActVolumeUp:
 		m.setVolume(m.volume + 5)
-	case "s":
+	case ActMute:
+		m.toggleMute()
+	case ActShuffle:
 		cmd := m.cycleShuffle()
 		return m, cmd
-	case "S":
+	case ActSaveQueueAsPlaylist:
 		return m.saveQueueAsNew()
-	case ">", ".":
+	case ActNextTrack:
 		return m.skipNext()
-	case "<", ",":
+	case ActPreviousTrack:
 		return m.skipPrev()
-	case "o":
+	case ActShowActionsOnSelectedItem:
 		if t := m.selectedTrack(); t != nil {
 			m.openActionSheet(*t)
 		}
-	case "r":
+	case ActShowActionsOnCurrentTrack:
+		if m.currentTrack != nil {
+			m.openActionSheet(*m.currentTrack)
+		}
+	case ActAddSelectedItemToQueue:
+		if t := m.selectedTrack(); t != nil {
+			track := *t
+			cmd := m.enqueueEnd(track)
+			return m, cmd
+		}
+	case ActGoToRadio:
 		if t := m.selectedTrack(); t != nil {
 			cmd := m.radioFrom(*t)
 			return m, cmd
 		}
-	case "f":
+	case ActToggleLiked:
 		if t := m.selectedTrack(); t != nil {
 			cmd := m.toggleFavorite(*t)
 			return m, cmd
 		}
-	case "a":
+	case ActGoToArtist:
 		return m.openArtistFor(m.selectedTrack())
-	case "c":
+	case ActCopyLink:
 		return m.copyLink()
+	default:
 	}
 	return m, nil
+}
+
+// seekTo seeks the playing track to pos seconds.
+func (m *Model) seekTo(pos float64) {
+	if m.clientMode || m.player == nil || m.currentTrack == nil {
+		return
+	}
+	if err := m.player.Seek(max(pos, 0)); err != nil {
+		m.errText = err.Error()
+	}
+}
+
+// toggleMute drops the volume to 0, or restores the level it had before.
+func (m *Model) toggleMute() {
+	if m.volume > 0 {
+		m.preMuteVolume = m.volume
+		m.setVolume(0)
+		return
+	}
+	restore := m.preMuteVolume
+	if restore <= 0 {
+		restore = 50
+	}
+	m.setVolume(restore)
 }
 
 // --- shared action helpers ---
