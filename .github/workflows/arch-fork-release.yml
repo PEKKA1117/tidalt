@@ -1,0 +1,83 @@
+name: Release arch-fork PKGBUILD
+
+# Every merge to master publishes a GitHub release carrying a PKGBUILD for
+# exactly that commit, so installing the fork is:
+#
+#     curl -LO https://github.com/PEKKA1117/tidalt/releases/latest/download/PKGBUILD
+#     makepkg -si
+#
+# The released PKGBUILD differs from packaging/arch-fork/PKGBUILD in two ways:
+# pkgver is filled in, and the source is pinned to the merged commit instead of
+# following a branch, so a given release always rebuilds the same code.
+
+on:
+  push:
+    branches: [ master ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Two quick merges must not race to publish out of order.
+concurrency:
+  group: arch-fork-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: release PKGBUILD
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # pkgver() runs git describe, which needs the full history and tags.
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Compute pkgver
+        id: ver
+        run: |
+          # Reuse the PKGBUILD's own pkgver() rather than copying its sed: it
+          # cds into $srcdir/$pkgname, so point that at this checkout.
+          srcdir=$(mktemp -d)
+          ln -s "$GITHUB_WORKSPACE" "$srcdir/tidalt"
+          # shellcheck disable=SC1091
+          source packaging/arch-fork/PKGBUILD
+          echo "pkgver=$(pkgver)" >> "$GITHUB_OUTPUT"
+
+      - name: Render PKGBUILD
+        env:
+          PKGVER: ${{ steps.ver.outputs.pkgver }}
+        run: |
+          mkdir -p dist
+          sed -e "s/^pkgver=.*/pkgver=${PKGVER}/" \
+              -e "s|#branch=\$_branch|#commit=${GITHUB_SHA}|" \
+              packaging/arch-fork/PKGBUILD > dist/PKGBUILD
+          # Fail loudly if the PKGBUILD's layout drifted and a substitution
+          # silently matched nothing.
+          grep -q "^pkgver=${PKGVER}$" dist/PKGBUILD
+          grep -q "#commit=${GITHUB_SHA}\"" dist/PKGBUILD
+          diff -u packaging/arch-fork/PKGBUILD dist/PKGBUILD || true
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PKGVER: ${{ steps.ver.outputs.pkgver }}
+        run: |
+          # No leading "v": release.yml builds upstream-style releases on v*
+          # tags, and this tag must not look like one of those.
+          tag="arch-${PKGVER}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "release $tag already exists"
+            exit 0
+          fi
+          gh release create "$tag" dist/PKGBUILD \
+            --target "$GITHUB_SHA" \
+            --title "tidalt ${PKGVER} (Arch PKGBUILD)" \
+            --latest \
+            --notes "PKGBUILD for ${GITHUB_SHA}, pinned to that commit.
+
+          \`\`\`sh
+          curl -LO https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}/PKGBUILD
+          makepkg -si
+          \`\`\`"
