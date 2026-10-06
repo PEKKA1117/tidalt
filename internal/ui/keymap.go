@@ -52,6 +52,7 @@ const (
 	ActBrowseUserFollowedArtists Action = "BrowseUserFollowedArtists"
 	ActBrowseUserSavedAlbums     Action = "BrowseUserSavedAlbums"
 	ActSwitchTheme               Action = "SwitchTheme"
+	ActPreviousPage              Action = "PreviousPage"
 
 	// Track actions.
 	ActShowActionsOnSelectedItem Action = "ShowActionsOnSelectedItem"
@@ -129,6 +130,7 @@ var actions = []struct {
 	{ActBrowseUserFollowedArtists, groupPages, "Favorite artists"},
 	{ActBrowseUserSavedAlbums, groupPages, "Favorite albums"},
 	{ActSwitchTheme, groupPages, "Theme picker"},
+	{ActPreviousPage, groupPages, "Previous page"},
 
 	{ActShowActionsOnSelectedItem, groupTrack, "Actions on selected track"},
 	{ActShowActionsOnCurrentTrack, groupTrack, "Actions on playing track"},
@@ -191,6 +193,17 @@ var presets = map[string][]binding{
 		{"pgdown", ActPageSelectNext},
 		{"pgup", ActPageSelectPrevious},
 
+		// spotify-player's page keys: needed when the sidebar is hidden.
+		{"z", ActQueue},
+		{"g y", ActLikedTrackPage},
+		{"g r", ActRecentlyPlayedTrackPage},
+		{"g s", ActSearchPage},
+		{"g m", ActMixesPage},
+		{"u p", ActBrowseUserPlaylists},
+		{"u a", ActBrowseUserFollowedArtists},
+		{"u A", ActBrowseUserSavedAlbums},
+		{"backspace", ActPreviousPage},
+
 		{"o", ActShowActionsOnSelectedItem},
 		{"r", ActGoToRadio},
 		{"f", ActToggleLiked},
@@ -238,6 +251,8 @@ var presets = map[string][]binding{
 		{"u a", ActBrowseUserFollowedArtists},
 		{"u A", ActBrowseUserSavedAlbums},
 		{"T", ActSwitchTheme},
+		{"backspace", ActPreviousPage},
+		{"ctrl+q", ActPreviousPage},
 
 		{"g a", ActShowActionsOnSelectedItem},
 		{"ctrl+@", ActShowActionsOnSelectedItem},

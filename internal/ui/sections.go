@@ -22,26 +22,15 @@ func (m *Model) renderQueuePane(t Theme, w, h int) string {
 	if showCover {
 		listW = w - coverW
 	}
-
-	innerW := max(listW-2, 1)
-	rows := make([]string, 0, len(m.tracks))
-	for i := range m.tracks {
-		tr := m.tracks[i]
-		rows = append(rows, renderTrackRow(t, tr, rowOpts{
-			selected:   m.focusMain && i == m.cursor,
-			playing:    m.currentTrack != nil && m.currentTrack.ID == tr.ID && m.isPlaying,
-			fav:        m.favorites[tr.ID],
-			showIndex:  true,
-			showArtist: true,
-			index:      i + 1,
-			width:      innerW,
-			duration:   tr.Duration,
-		}))
-	}
-	if len(rows) == 0 {
-		rows = append(rows, t.RowDim.Render("Queue is empty. Search or open a mix to add tracks."))
-	}
-	listPanel := renderListPanel(t, m.queueHeader(t), m.focusMain, rows, m.cursor, listW, h)
+	listPanel := m.renderTrackList(t, trackList{
+		title:   m.queueHeader(t),
+		tracks:  m.tracks,
+		cursor:  m.cursor,
+		focused: m.focusMain,
+		index:   true,
+		artist:  true,
+		empty:   "Queue is empty. Search or open a mix to add tracks.",
+	}, listW, h)
 	if !showCover {
 		return listPanel
 	}
@@ -228,25 +217,14 @@ func (m *Model) renderArtistPane(t Theme, w, h int) string {
 // renderArtistAlbumPane lists the tracks of an album opened inside the artist
 // drill-down.
 func (m *Model) renderArtistAlbumPane(t Theme, w, h int) string {
-	innerW := max(w-2, 1)
-	rows := make([]string, 0, len(m.artistAlbumTracks))
-	for i := range m.artistAlbumTracks {
-		tr := m.artistAlbumTracks[i]
-		rows = append(rows, renderTrackRow(t, tr, rowOpts{
-			selected:  i == m.artistAlbumCursor,
-			playing:   m.currentTrack != nil && m.currentTrack.ID == tr.ID && m.isPlaying,
-			fav:       m.favorites[tr.ID],
-			showIndex: true,
-			index:     i + 1,
-			width:     innerW,
-			duration:  tr.Duration,
-		}))
-	}
-	if len(rows) == 0 {
-		rows = append(rows, t.RowDim.Render("No tracks."))
-	}
-	title := "ALBUM · " + strings.ToUpper(m.artistAlbum.Title)
-	return renderListPanel(t, title, true, rows, m.artistAlbumCursor, w, h)
+	return m.renderTrackList(t, trackList{
+		title:   "ALBUM · " + strings.ToUpper(m.artistAlbum.Title),
+		tracks:  m.artistAlbumTracks,
+		cursor:  m.artistAlbumCursor,
+		focused: true,
+		index:   true,
+		empty:   "No tracks.",
+	}, w, h)
 }
 
 // useGraphicsCover reports whether the cover should be drawn by the terminal
@@ -255,4 +233,47 @@ func (m *Model) renderArtistAlbumPane(t Theme, w, h int) string {
 // popup is text and would not hide a terminal-drawn image.
 func (m *Model) useGraphicsCover() bool {
 	return m.gfxMode != coverBlocks && m.coverImage != nil && m.overlay == OverlayNone
+}
+
+// trackList describes one track-list pane for renderTrackList.
+type trackList struct {
+	title   string
+	tracks  []tidal.Track
+	cursor  int
+	focused bool   // focused border and selection band
+	index   bool   // plain rows: show the track number
+	artist  bool   // plain rows: show the artist
+	allFav  bool   // every row is a favorite (the Favorite songs list)
+	empty   string // shown when there are no tracks
+}
+
+// renderTrackList draws a track list as plain rows, or as a table with a
+// pinned column header when the layout asks for one.
+func (m *Model) renderTrackList(t Theme, l trackList, w, h int) string {
+	innerW := max(w-2, 1)
+	render := renderTrackRow
+	if m.layout.TrackTable {
+		render = renderTrackTableRow
+	}
+	rows := make([]string, 0, len(l.tracks))
+	for i := range l.tracks {
+		tr := l.tracks[i]
+		rows = append(rows, render(t, tr, rowOpts{
+			selected:   l.focused && i == l.cursor,
+			playing:    m.currentTrack != nil && m.currentTrack.ID == tr.ID && m.isPlaying,
+			fav:        l.allFav || m.favorites[tr.ID],
+			showIndex:  l.index,
+			showArtist: l.artist,
+			index:      i + 1,
+			width:      innerW,
+			duration:   tr.Duration,
+		}))
+	}
+	if len(rows) == 0 {
+		return renderListPanel(t, l.title, l.focused, []string{t.RowDim.Render(l.empty)}, 0, w, h)
+	}
+	if m.layout.TrackTable {
+		return renderTablePanel(t, l.title, l.focused, renderTrackTableHeader(t, innerW), rows, l.cursor, w, h)
+	}
+	return renderListPanel(t, l.title, l.focused, rows, l.cursor, w, h)
 }

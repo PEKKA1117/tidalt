@@ -105,7 +105,7 @@ func (m Model) playPlaylistFrom(i int) (tea.Model, tea.Cmd) {
 		i = 0
 	}
 	m.cursor = i
-	m.section = SecQueue
+	m.jumpToQueue()
 	m.sidebarCursor = navIndexOf(SecQueue)
 	track := m.tracks[i]
 	_ = m.store.CacheTrack(track.ID, track)
@@ -231,27 +231,18 @@ func (m *Model) renderPlaylistsPane(t Theme, w, h int) string {
 	}
 	indexPanel := renderListPanel(t, "PLAYLISTS", !m.detailFocus, idxRows, m.cursor*2, idxW, h)
 
-	var detailRows []string
-	for i := range m.detailTracks {
-		tr := m.detailTracks[i]
-		detailRows = append(detailRows, renderTrackRow(t, tr, rowOpts{
-			selected:  m.detailFocus && i == m.detailCursor,
-			playing:   m.currentTrack != nil && m.currentTrack.ID == tr.ID && m.isPlaying,
-			fav:       m.favorites[tr.ID],
-			showIndex: true,
-			index:     i + 1,
-			width:     detailW - 2,
-			duration:  tr.Duration,
-		}))
-	}
 	title := "SELECT A PLAYLIST"
 	if m.openPlaylist != nil {
 		title = strings.ToUpper(m.playlistName)
 	}
-	if len(detailRows) == 0 {
-		detailRows = append(detailRows, t.RowDim.Render("Press → to open a playlist."))
-	}
-	detailPanel := renderListPanel(t, title, m.detailFocus, detailRows, m.detailCursor, detailW, h)
+	detailPanel := m.renderTrackList(t, trackList{
+		title:   title,
+		tracks:  m.detailTracks,
+		cursor:  m.detailCursor,
+		focused: m.detailFocus,
+		index:   true,
+		empty:   "Press → to open a playlist.",
+	}, detailW, h)
 
 	return lipgloss.JoinHorizontal(lipgloss.Top, indexPanel, detailPanel)
 }
@@ -282,23 +273,15 @@ func (m Model) updateFavSongs(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // renderFavSongsPane lists the favorite songs.
 func (m *Model) renderFavSongsPane(t Theme, w, h int) string {
-	innerW := max(w-2, 1)
-	rows := make([]string, 0, len(m.favSongs))
-	for i := range m.favSongs {
-		tr := m.favSongs[i]
-		rows = append(rows, renderTrackRow(t, tr, rowOpts{
-			selected:   m.focusMain && i == m.cursor,
-			playing:    m.currentTrack != nil && m.currentTrack.ID == tr.ID && m.isPlaying,
-			fav:        true,
-			showArtist: true,
-			width:      innerW,
-			duration:   tr.Duration,
-		}))
-	}
-	if len(rows) == 0 {
-		rows = append(rows, t.RowDim.Render("No favorite songs."))
-	}
-	return renderListPanel(t, "SONGS", m.focusMain, rows, m.cursor, w, h)
+	return m.renderTrackList(t, trackList{
+		title:   "SONGS",
+		tracks:  m.favSongs,
+		cursor:  m.cursor,
+		focused: m.focusMain,
+		artist:  true,
+		allFav:  true,
+		empty:   "No favorite songs.",
+	}, w, h)
 }
 
 // renderFavArtistsPane lists favorited artists.
@@ -358,21 +341,12 @@ func (m *Model) renderFavAlbumsPane(t Theme, w, h int) string {
 
 // renderHistoryPane lists recently played tracks.
 func (m *Model) renderHistoryPane(t Theme, w, h int) string {
-	innerW := max(w-2, 1)
-	rows := make([]string, 0, len(m.history))
-	for i := range m.history {
-		tr := m.history[i]
-		rows = append(rows, renderTrackRow(t, tr, rowOpts{
-			selected:   m.focusMain && i == m.cursor,
-			playing:    m.currentTrack != nil && m.currentTrack.ID == tr.ID && m.isPlaying,
-			fav:        m.favorites[tr.ID],
-			showArtist: true,
-			width:      innerW,
-			duration:   tr.Duration,
-		}))
-	}
-	if len(rows) == 0 {
-		rows = append(rows, t.RowDim.Render("Nothing played yet this session."))
-	}
-	return renderListPanel(t, "RECENTLY PLAYED", m.focusMain, rows, m.cursor, w, h)
+	return m.renderTrackList(t, trackList{
+		title:   "RECENTLY PLAYED",
+		tracks:  m.history,
+		cursor:  m.cursor,
+		focused: m.focusMain,
+		artist:  true,
+		empty:   "Nothing played yet this session.",
+	}, w, h)
 }

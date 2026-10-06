@@ -9,6 +9,10 @@ tidalt comes with two keymap presets, and you can change any binding in
   [spotify-player](https://github.com/aome510/spotify-player), with
   tidalt-only commands put on keys spotify-player leaves free.
 
+Both presets have the page keys (`z`, `g y`, `u p`, …) and `Backspace` for the
+previous page, so every section can be reached without the sidebar. The
+screen layout is set separately, in [app.toml](layout.md).
+
 Cursor and focus keys are the same in both presets and can't be rebound yet:
 `j`/`k` (or `↓`/`↑`) move, `h`/`l` (or `←`/`→`) switch between the sidebar and
 the main pane, `Enter` plays or opens, and `Esc` backs out. In the `tidalt`
@@ -74,15 +78,16 @@ When you type the first key of a chord, the footer shows that key followed by
 | `SelectLastOrScrollToBottom` | Go to bottom | `G`, `End` | `G`, `End` |
 | `PageSelectNextOrScrollDown` | Page down | `PgDn` | `PgDn`, `C-f` |
 | `PageSelectPreviousOrScrollUp` | Page up | `PgUp` | `PgUp`, `C-b` |
-| `Queue` | Queue page | | `z` |
-| `LikedTrackPage` | Favorite songs | | `g y` |
-| `RecentlyPlayedTrackPage` | Recently played | | `g r` |
-| `MixesPage` | Daily mixes | | `g m` |
-| `SearchPage` | Search | | `g s` |
-| `BrowseUserPlaylists` | Playlists | | `u p` |
-| `BrowseUserFollowedArtists` | Favorite artists | | `u a` |
-| `BrowseUserSavedAlbums` | Favorite albums | | `u A` |
+| `Queue` | Queue page | `z` | `z` |
+| `LikedTrackPage` | Favorite songs | `g y` | `g y` |
+| `RecentlyPlayedTrackPage` | Recently played | `g r` | `g r` |
+| `MixesPage` | Daily mixes | `g m` | `g m` |
+| `SearchPage` | Search | `g s` | `g s` |
+| `BrowseUserPlaylists` | Playlists | `u p` | `u p` |
+| `BrowseUserFollowedArtists` | Favorite artists | `u a` | `u a` |
+| `BrowseUserSavedAlbums` | Favorite albums | `u A` | `u A` |
 | `SwitchTheme` | Theme picker | | `T` |
+| `PreviousPage` | Back to the previous page, or out of the artist view | `Backspace` | `Backspace`, `C-q` |
 | `ShowActionsOnSelectedItem` | Actions on the selected track | `o` | `g a`, `C-Space` |
 | `ShowActionsOnCurrentTrack` | Actions on the playing track | | `a` |
 | `AddSelectedItemToQueue` | Add the selected track to the queue | | `Z`, `C-z` |

@@ -11,7 +11,7 @@ const (
 	sidebarFullW = 22 // sidebar width when the terminal is wide enough
 	sidebarIconW = 5  // icons-only sidebar for narrow terminals
 	zoneGap      = 1  // columns between sidebar and main pane
-	nowBarH      = 5  // bottom now-playing bar height (border 2 + 3 content rows)
+	nowBarH      = 5  // now-playing bar height (border 2 + 3 content rows)
 	footerH      = 1  // key bar
 )
 
@@ -133,7 +133,7 @@ func renderListPanel(t Theme, title string, focused bool, rows []string, cursor,
 // means "hide the sidebar entirely".
 func (m *Model) layoutDims() (sidebarW, mainW int) {
 	switch {
-	case m.width < 40:
+	case m.layout.HideSidebar || m.width < 40:
 		return 0, max(m.width, 1)
 	case m.width < 62:
 		sidebarW = sidebarIconW
@@ -152,4 +152,22 @@ func (m *Model) bodyHeight() int {
 		h--
 	}
 	return max(h, 1)
+}
+
+// bodyTop is the screen row (0-indexed) where the sidebar+main zone starts:
+// below the playback window when it is on top.
+func (m *Model) bodyTop() int {
+	if m.layout.PlaybackTop {
+		return nowBarH
+	}
+	return 0
+}
+
+// renderTablePanel is renderListPanel with a column header pinned to the top
+// of the panel while the rows below it scroll.
+func renderTablePanel(t Theme, title string, focused bool, header string, rows []string, cursor, w, h int) string {
+	listH := max(h-3, 1) // borders and the header row
+	start, end := visibleWindow(cursor, len(rows), listH)
+	body := header + "\n" + strings.Join(rows[start:end], "\n")
+	return renderPanel(t, title, focused, w, h, body)
 }

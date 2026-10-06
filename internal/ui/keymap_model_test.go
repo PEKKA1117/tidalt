@@ -14,27 +14,28 @@ import (
 // press.
 func keyMsg(s string) tea.KeyMsg {
 	named := map[string]tea.KeyType{
-		keyEnter:  tea.KeyEnter,
-		keyEsc:    tea.KeyEsc,
-		keyUp:     tea.KeyUp,
-		keyDown:   tea.KeyDown,
-		keyLeft:   tea.KeyLeft,
-		keyRight:  tea.KeyRight,
-		" ":       tea.KeySpace,
-		"ctrl+c":  tea.KeyCtrlC,
-		"ctrl+s":  tea.KeyCtrlS,
-		"ctrl+z":  tea.KeyCtrlZ,
-		"ctrl+f":  tea.KeyCtrlF,
-		"ctrl+b":  tea.KeyCtrlB,
-		"ctrl+@":  tea.KeyCtrlAt,
-		"pgdown":  tea.KeyPgDown,
-		"pgup":    tea.KeyPgUp,
-		"home":    tea.KeyHome,
-		"end":     tea.KeyEnd,
-		"tab":     tea.KeyTab,
-		"bksp":    tea.KeyBackspace,
-		"ctrl+h":  tea.KeyCtrlH,
-		"shift+t": tea.KeyShiftTab,
+		keyEnter:    tea.KeyEnter,
+		keyEsc:      tea.KeyEsc,
+		keyUp:       tea.KeyUp,
+		keyDown:     tea.KeyDown,
+		keyLeft:     tea.KeyLeft,
+		keyRight:    tea.KeyRight,
+		" ":         tea.KeySpace,
+		"ctrl+c":    tea.KeyCtrlC,
+		"ctrl+s":    tea.KeyCtrlS,
+		"ctrl+z":    tea.KeyCtrlZ,
+		"ctrl+f":    tea.KeyCtrlF,
+		"ctrl+b":    tea.KeyCtrlB,
+		"ctrl+@":    tea.KeyCtrlAt,
+		"pgdown":    tea.KeyPgDown,
+		"pgup":      tea.KeyPgUp,
+		"home":      tea.KeyHome,
+		"end":       tea.KeyEnd,
+		"tab":       tea.KeyTab,
+		"backspace": tea.KeyBackspace,
+		"ctrl+q":    tea.KeyCtrlQ,
+		"ctrl+h":    tea.KeyCtrlH,
+		"shift+t":   tea.KeyShiftTab,
 	}
 	if kt, ok := named[s]; ok {
 		return tea.KeyMsg{Type: kt}
@@ -49,7 +50,7 @@ func press(t *testing.T, m Model, keys ...string) (Model, tea.Cmd) {
 	var cmd tea.Cmd
 	for _, k := range keys {
 		msg := keyMsg(k)
-		if got := msg.String(); got != k && k != "bksp" && k != "shift+t" {
+		if got := msg.String(); got != k && k != "shift+t" {
 			t.Fatalf("keyMsg(%q).String() = %q", k, got)
 		}
 		var next tea.Model
