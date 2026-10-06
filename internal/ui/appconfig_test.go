@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestParseAppConfigDefaults(t *testing.T) {
@@ -118,5 +119,52 @@ func TestAppConfigPresetName(t *testing.T) {
 	}
 	if cfg, _ := LoadAppConfig(""); cfg.Preset != PresetTidalt {
 		t.Errorf("no file: Preset = %q, want tidalt", cfg.Preset)
+	}
+}
+
+// TestParseAppConfigFollowIdle covers `[queue] follow_idle_sec` as docs/layout.md
+// specifies it: 10s when unset, 0 turns it off, negative is an error.
+func TestParseAppConfigFollowIdle(t *testing.T) {
+	cases := []struct {
+		name    string
+		toml    string
+		want    time.Duration
+		wantErr bool
+	}{
+		{name: "unset", toml: "", want: 10 * time.Second},
+		{name: "unset with a queue table", toml: "[queue]\n", want: 10 * time.Second},
+		{name: "set", toml: "[queue]\nfollow_idle_sec = 30\n", want: 30 * time.Second},
+		{name: "off", toml: "[queue]\nfollow_idle_sec = 0\n", want: 0},
+		{name: "negative", toml: "[queue]\nfollow_idle_sec = -1\n", wantErr: true},
+		{name: "wrong type", toml: "[queue]\nfollow_idle_sec = \"10s\"\n", wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, err := ParseAppConfig([]byte(tc.toml))
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("accepted %q", tc.toml)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.FollowIdle != tc.want {
+				t.Fatalf("FollowIdle = %v, want %v", cfg.FollowIdle, tc.want)
+			}
+		})
+	}
+}
+
+// TestLoadAppConfigMissingFollowIdle: without app.toml the follow is on at
+// its default.
+func TestLoadAppConfigMissingFollowIdle(t *testing.T) {
+	cfg, err := LoadAppConfig(filepath.Join(t.TempDir(), "app.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.FollowIdle != 10*time.Second {
+		t.Fatalf("FollowIdle = %v, want 10s", cfg.FollowIdle)
 	}
 }

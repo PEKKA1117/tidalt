@@ -72,6 +72,25 @@ toast confirms the save.
 `x` removes the selected track from the queue and `C` clears it (the current
 track keeps playing in both cases).
 
+### Following the playing track
+
+When no key has been pressed for `follow_idle_sec` seconds (10 by default, set
+in [app.toml](layout.md#following-the-playing-track)), the Queue cursor moves
+back onto the playing track and scrolls it into view. In client mode this keeps
+the queue in step with the running instance as it advances; in the running
+instance it returns the cursor after you've browsed away (the cursor is also
+where playback continues from).
+
+- It only acts while the Queue is the open page, and is checked once a second,
+  so the move can land up to a second after the idle time runs out.
+- Any key press restarts the idle time.
+- It waits while an overlay (action sheet, palette, help, …), the `/` find
+  prompt, a half-typed key sequence (`g` of `g y`) or the artist view is open.
+- Nothing moves when no track is playing, when the playing track isn't in the
+  queue, or when the cursor is already on it. If the track is queued more than
+  once, the cursor goes to its first occurrence.
+- `follow_idle_sec = 0` turns it off.
+
 ## The action sheet
 
 Press `o` on any track to open a contextual popup of actions, so the same set of

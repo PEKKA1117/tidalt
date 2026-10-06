@@ -137,6 +137,12 @@ type Model struct {
 	layout      Layout
 	pageHistory []Section
 
+	// followIdle is how long the keyboard must be idle on the Queue before its
+	// cursor moves back onto the playing track (0 = never); lastKeyAt is when
+	// the last key arrived.
+	followIdle time.Duration
+	lastKeyAt  time.Time
+
 	// Artist view — the selected artist's albums plus two synthetic quick-play
 	// rows ("Play all tracks", "Top tracks"). Reached from the action sheet.
 	artistID      int // 0 = none
@@ -398,6 +404,8 @@ func InitialModel(ctx context.Context, client *tidal.Client, s *store.SecretsSto
 		theme:         theme,
 		keymap:        keymap,
 		layout:        appCfg.Layout,
+		followIdle:    appCfg.FollowIdle,
+		lastKeyAt:     time.Now(),
 		errText:       errText,
 	}
 }
@@ -455,6 +463,8 @@ func ClientModel(ctx context.Context, client *tidal.Client, s *store.SecretsStor
 		theme:         theme,
 		keymap:        keymap,
 		layout:        appCfg.Layout,
+		followIdle:    appCfg.FollowIdle,
+		lastKeyAt:     time.Now(),
 		errText:       errText,
 	}
 }
@@ -1023,6 +1033,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		m.lastKeyAt = time.Now()
 		return m.handleKey(msg)
 
 	case tea.WindowSizeMsg:
@@ -1115,7 +1126,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			_ = m.store.SaveLastPosition(m.currPos)
 			m.pushState()
 		}
-		cmds := []tea.Cmd{tickCmd()}
+		cmds := []tea.Cmd{tickCmd(), m.followPlaying(time.Time(msg))}
 		// Restart the fast equaliser tick if playback resumed while it was idle
 		// (covers client-mode playback and MPRIS-driven resume).
 		if m.isPlaying {

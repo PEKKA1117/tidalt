@@ -270,3 +270,31 @@ func insertTrack(s []tidal.Track, i int, t tidal.Track) []tidal.Track {
 	s[i] = t
 	return s
 }
+
+// followPlaying moves the Queue cursor onto the playing track once the
+// keyboard has been idle for followIdle (docs/ui.md "Following the playing
+// track"). A client's cursor is only a browse position, so this keeps the
+// playing track in view as the parent advances; in the standalone instance it
+// brings a cursor left elsewhere after browsing back to where playback is. It
+// waits while anything is mid-input — an overlay, the find prompt, a
+// half-typed chord, the artist drill-down — and returns the cover sync for the
+// new row, or nil when nothing moved.
+func (m *Model) followPlaying(now time.Time) tea.Cmd {
+	if m.followIdle <= 0 || now.Sub(m.lastKeyAt) < m.followIdle {
+		return nil
+	}
+	if m.section != SecQueue || m.showArtist || m.overlay != OverlayNone ||
+		m.findActive || len(m.pendingKeys) > 0 || m.currentTrack == nil {
+		return nil
+	}
+	if m.cursor < len(m.tracks) && m.tracks[m.cursor].ID == m.currentTrack.ID {
+		return nil
+	}
+	for i := range m.tracks {
+		if m.tracks[i].ID == m.currentTrack.ID {
+			m.cursor = i
+			return m.syncQueueCover()
+		}
+	}
+	return nil
+}

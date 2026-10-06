@@ -43,5 +43,17 @@ The track table applies to the Queue, Favorite songs, Recently played, the
 open playlist, and an album opened from the artist view. Its column header stays
 at the top while the list scrolls.
 
+## Following the playing track
+
+The Queue cursor moves back onto the playing track after the keyboard has been
+idle for a while (see [The interface](ui.md#following-the-playing-track)):
+
+```toml
+[queue]
+follow_idle_sec = 10   # seconds without a key press; 0 turns it off
+```
+
+The default is 10 seconds; a negative value is an error.
+
 If `app.toml` has an error, tidalt shows it in the status line and uses the
 default layout.
