@@ -9,6 +9,30 @@
 - **Build**: `go build ./...`
 - **CGO**: required — the player package links against libasound (`-lasound`)
 
+## Development approach: tech-lead
+
+The primary session works as a **tech-lead**, following the `tech-lead` skill vendored at `.claude/skills/tech-lead/SKILL.md` (from [akunzai/agent-skills](https://github.com/akunzai/agent-skills/blob/main/skills/tech-lead/SKILL.md) @ `50117a94d9d7`, MIT, see its `LICENSE`). Read it, and its `references/brief-elements.md`, before starting any non-trivial dev or fix:
+
+- Stay in the primary session for a few-line or single-file mechanical edit and for architecture decisions; delegate anything larger to implementer subagents
+- Slice the work (files each slice may touch, parallel/serial, durability), confirm parallelism and its cap with the user, isolate each slice in its own git worktree and branch, brief one implementer per slice, then accept, integrate and clean up in the primary session
+- Tests, builds and lint run in the primary session, which reads their output itself
+
+It combines with SDD + TDD below as follows: the spec (step 1 of SDD) is written or approved in the primary session before slicing, and is quoted in every brief; each brief's acceptance requires the red → green → refactor sequence, the failing-test evidence, and the tooling checks from "Build & tooling"; at acceptance the tech-lead verifies the test was written first and fails without the change, and that the spec and code agree.
+
+## Development workflow: SDD + TDD
+
+Every feature and every bug fix, however small, follows spec-driven development (SDD) and then test-driven development (TDD), in this order:
+
+1. **Spec first (SDD)** — before touching code, write or update the spec that states the intended behaviour:
+   - Features: add or update the relevant page in `docs/` (or create a new one) describing the behaviour, inputs/outputs, key bindings/config, and edge cases. Link new pages from `docs/architecture.md` or `README.md` where appropriate
+   - Bug fixes: state the expected vs. actual behaviour and the root cause, and correct the spec in `docs/` if it was wrong or silent on the case
+   - Keep the "Package overview" below in sync when a change alters what a package does
+2. **Red (TDD)** — write a failing `_test.go` test derived from the spec (for a bug: a test that reproduces it). Run `go test ./<pkg>/...` and confirm it fails for the expected reason
+3. **Green** — write the minimal code that makes the test pass
+4. **Refactor** — clean up with the tests green, then run `gofumpt -w .`, `golangci-lint run`, `go build ./...` and `go test ./...`
+
+Tests are table-driven where it fits and live next to the code they cover. Code that can't be unit-tested directly (ALSA/FFmpeg CGO, D-Bus, live Tidal API) is tested through a seam — extract the pure logic (format choice, fallback decisions, parsing, URL building) into a testable function, as `shared.go`/`alsa_fallback_test.go` and `api_test.go` do. Never skip, disable or weaken a test to get green; if a spec change makes a test obsolete, update the test to the new spec.
+
 ## Package overview
 
 ### `cmd/tidalt`
