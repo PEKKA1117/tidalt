@@ -16,12 +16,14 @@ import (
 
 // Frequently-compared key strings, hoisted to constants (goconst).
 const (
-	keyEsc   = "esc"
-	keyUp    = "up"
-	keyDown  = "down"
-	keyEnter = "enter"
-	keyLeft  = "left"
-	keyRight = "right"
+	keyEsc      = "esc"
+	keyUp       = "up"
+	keyDown     = "down"
+	keyEnter    = "enter"
+	keyLeft     = "left"
+	keyRight    = "right"
+	keyTab      = "tab"
+	keyShiftTab = "shift+tab"
 )
 
 // keys returns the active keymap; models built without one (tests, the
@@ -208,6 +210,8 @@ func (m Model) runAction(act Action) (tea.Model, tea.Cmd) {
 		return m.selectSection(SecFavArtists)
 	case ActBrowseUserSavedAlbums:
 		return m.selectSection(SecFavAlbums)
+	case ActLibraryPage:
+		return m.selectSection(SecLibrary)
 	case ActPreviousPage:
 		return m.previousPage()
 	default:
@@ -420,6 +424,8 @@ func (m *Model) loadSection(sec Section) tea.Cmd {
 			}
 			return favAlbumsMsg(albums)
 		}
+	case SecLibrary:
+		return m.loadLibrary()
 	default:
 		// SecHistory uses the in-memory m.history; others reuse loaded data.
 		return nil
@@ -464,6 +470,8 @@ func (m Model) updateSection(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.updateFavArtists(k)
 	case SecFavAlbums:
 		return m.updateFavAlbums(k)
+	case SecLibrary:
+		return m.updateLibrary(k)
 	case SecHistory:
 		return m.updateHistory(k)
 	case SecSettings:
@@ -918,6 +926,9 @@ func (m *Model) selectedTrack() *tidal.Track {
 	switch {
 	case m.section == SecSearch:
 		return m.selectedTrackForSearch()
+	case m.section == SecLibrary && !m.showArtist:
+		// The Library lists no tracks: track actions act on the playing one.
+		return m.currentTrack
 	case m.section == SecFavSongs && len(m.favSongs) > 0 && m.cursor < len(m.favSongs):
 		t := m.favSongs[m.cursor]
 		return &t
