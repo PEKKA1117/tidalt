@@ -13,8 +13,9 @@ For a [spotify-player](https://github.com/aome510/spotify-player)-style layout
 preset = "spotify-player"
 ```
 
-It pairs with the `spotify-player` key preset in `keymap.toml` (see
-[Key bindings](keymap.md)), but the two can be set independently.
+This also switches the keys to the `spotify-player` preset, unless
+`keymap.toml` names a preset of its own (see [Key bindings](keymap.md)). So
+the layout and the keys can still be set independently.
 
 ## Settings
 

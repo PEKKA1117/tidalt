@@ -365,6 +365,11 @@ type keymapFile struct {
 // (tidalt when unset) with each [[keymaps]] entry layered on top. An entry
 // replaces whatever its key sequence meant before; command = "None" unbinds it.
 func ParseKeymap(data []byte) (*Keymap, error) {
+	return parseKeymap(data, PresetTidalt)
+}
+
+// parseKeymap is ParseKeymap with the preset to use when the file names none.
+func parseKeymap(data []byte, fallbackPreset string) (*Keymap, error) {
 	var f keymapFile
 	md, err := toml.Decode(string(data), &f)
 	if err != nil {
@@ -374,7 +379,7 @@ func ParseKeymap(data []byte) (*Keymap, error) {
 		return nil, fmt.Errorf("unknown setting %q", und[0].String())
 	}
 	if f.Preset == "" {
-		f.Preset = PresetTidalt
+		f.Preset = fallbackPreset
 	}
 	base, ok := presets[f.Preset]
 	if !ok {
@@ -408,23 +413,28 @@ func KeymapPath() string {
 	return filepath.Join(dir, "tidalt", "keymap.toml")
 }
 
-// LoadKeymap reads keymap.toml. A missing file means the default keymap. A
-// broken one returns the default keymap too, alongside the error, so a typo
-// in the file never leaves the UI without keys.
-func LoadKeymap(path string) (*Keymap, error) {
+// LoadKeymap reads keymap.toml. fallbackPreset (app.toml's layout preset)
+// applies when the file names no preset, and when it is missing. A broken
+// file returns the fallback preset too, alongside the error, so a typo in
+// the file never leaves the UI without keys.
+func LoadKeymap(path, fallbackPreset string) (*Keymap, error) {
+	fallback, err := Preset(fallbackPreset)
+	if err != nil {
+		fallback = defaultKeymap
+	}
 	if path == "" {
-		return defaultKeymap, nil
+		return fallback, nil
 	}
 	data, err := os.ReadFile(path) //nolint:gosec // G304: the path is tidalt's own config file, chosen by the user
 	if errors.Is(err, fs.ErrNotExist) {
-		return defaultKeymap, nil
+		return fallback, nil
 	}
 	if err != nil {
-		return defaultKeymap, err
+		return fallback, err
 	}
-	km, err := ParseKeymap(data)
+	km, err := parseKeymap(data, fallbackPreset)
 	if err != nil {
-		return defaultKeymap, fmt.Errorf("%s: %w", path, err)
+		return fallback, fmt.Errorf("%s: %w", path, err)
 	}
 	return km, nil
 }

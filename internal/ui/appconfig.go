@@ -27,7 +27,15 @@ var layoutPresets = map[string]Layout{
 
 // AppConfig is app.toml: settings that are not key bindings.
 type AppConfig struct {
+	// Preset is the layout preset's name. keymap.toml falls back to the
+	// same key preset when it names none, so one line here sets both.
+	Preset string
 	Layout Layout
+}
+
+// defaultAppConfig is the configuration without an app.toml.
+func defaultAppConfig() AppConfig {
+	return AppConfig{Preset: PresetTidalt}
 }
 
 // appConfigFile is the on-disk shape of app.toml. Pointer fields tell "unset"
@@ -75,7 +83,7 @@ func ParseAppConfig(data []byte) (AppConfig, error) {
 	if l.TrackTable != nil {
 		layout.TrackTable = *l.TrackTable
 	}
-	return AppConfig{Layout: layout}, nil
+	return AppConfig{Preset: l.Preset, Layout: layout}, nil
 }
 
 // AppConfigPath is where tidalt looks for app.toml:
@@ -92,18 +100,18 @@ func AppConfigPath() string {
 // one returns the defaults too, alongside the error.
 func LoadAppConfig(path string) (AppConfig, error) {
 	if path == "" {
-		return AppConfig{}, nil
+		return defaultAppConfig(), nil
 	}
 	data, err := os.ReadFile(path) //nolint:gosec // G304: the path is tidalt's own config file, chosen by the user
 	if errors.Is(err, fs.ErrNotExist) {
-		return AppConfig{}, nil
+		return defaultAppConfig(), nil
 	}
 	if err != nil {
-		return AppConfig{}, err
+		return defaultAppConfig(), err
 	}
 	cfg, err := ParseAppConfig(data)
 	if err != nil {
-		return AppConfig{}, fmt.Errorf("%s: %w", path, err)
+		return defaultAppConfig(), fmt.Errorf("%s: %w", path, err)
 	}
 	return cfg, nil
 }

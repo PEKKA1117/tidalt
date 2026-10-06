@@ -101,3 +101,22 @@ func TestAppConfigPath(t *testing.T) {
 		t.Fatalf("AppConfigPath() = %q", got)
 	}
 }
+
+func TestAppConfigPresetName(t *testing.T) {
+	for cfgText, want := range map[string]string{
+		"": PresetTidalt,
+		"[layout]\npreset = \"spotify-player\"\n": PresetSpotifyPlayer,
+		"[layout]\nsidebar = false\n":             PresetTidalt,
+	} {
+		cfg, err := ParseAppConfig([]byte(cfgText))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.Preset != want {
+			t.Errorf("%q: Preset = %q, want %q", cfgText, cfg.Preset, want)
+		}
+	}
+	if cfg, _ := LoadAppConfig(""); cfg.Preset != PresetTidalt {
+		t.Errorf("no file: Preset = %q, want tidalt", cfg.Preset)
+	}
+}

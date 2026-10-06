@@ -370,8 +370,8 @@ func InitialModel(ctx context.Context, client *tidal.Client, s *store.SecretsSto
 
 	themeName, palette, theme := loadTheme(s)
 
-	keymap, keymapErr := LoadKeymap(KeymapPath())
 	appCfg, appCfgErr := LoadAppConfig(AppConfigPath())
+	keymap, keymapErr := LoadKeymap(KeymapPath(), appCfg.Preset)
 	errText := configErrText(keymapErr, appCfgErr)
 
 	return Model{
@@ -427,8 +427,8 @@ func ClientModel(ctx context.Context, client *tidal.Client, s *store.SecretsStor
 
 	themeName, palette, theme := loadTheme(s)
 
-	keymap, keymapErr := LoadKeymap(KeymapPath())
 	appCfg, appCfgErr := LoadAppConfig(AppConfigPath())
+	keymap, keymapErr := LoadKeymap(KeymapPath(), appCfg.Preset)
 	errText := configErrText(keymapErr, appCfgErr)
 
 	return Model{
