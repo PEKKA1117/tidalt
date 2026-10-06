@@ -22,7 +22,8 @@ list doesn't use them itself.
 ## keymap.toml
 
 ```toml
-# Pick a preset; "tidalt" when unset.
+# Pick a preset. When unset, the keys follow the layout preset in
+# app.toml, and are "tidalt" without one.
 preset = "spotify-player"
 
 # Then override single bindings. The format matches spotify-player's

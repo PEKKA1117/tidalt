@@ -256,7 +256,7 @@ func TestParseKeymapErrors(t *testing.T) {
 func TestLoadKeymapFile(t *testing.T) {
 	dir := t.TempDir()
 
-	km, err := LoadKeymap(filepath.Join(dir, "missing.toml"))
+	km, err := LoadKeymap(filepath.Join(dir, "missing.toml"), PresetTidalt)
 	if err != nil {
 		t.Fatalf("missing file should fall back to the default preset, got %v", err)
 	}
@@ -268,7 +268,7 @@ func TestLoadKeymapFile(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`preset = "spotify-player"`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	km, err = LoadKeymap(path)
+	km, err = LoadKeymap(path, PresetTidalt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -279,7 +279,7 @@ func TestLoadKeymapFile(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`preset = "emacs"`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	km, err = LoadKeymap(path)
+	km, err = LoadKeymap(path, PresetTidalt)
 	if err == nil {
 		t.Fatal("invalid file should report an error")
 	}
@@ -292,5 +292,59 @@ func TestKeymapPath(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "/xdg")
 	if got := KeymapPath(); got != "/xdg/tidalt/keymap.toml" {
 		t.Fatalf("KeymapPath() = %q", got)
+	}
+}
+
+// TestKeymapFollowsLayoutPreset: when keymap.toml names no preset, the keys
+// follow app.toml's layout preset, so one line there switches both.
+func TestKeymapFollowsLayoutPreset(t *testing.T) {
+	dir := t.TempDir()
+
+	km, err := LoadKeymap(filepath.Join(dir, "missing.toml"), PresetSpotifyPlayer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a, _ := km.Lookup("n"); a != ActNextTrack {
+		t.Fatalf("no keymap.toml, spotify-player layout: n = %q, want NextTrack", a)
+	}
+
+	path := filepath.Join(dir, "keymap.toml")
+	override := "[[keymaps]]\ncommand = \"Quit\"\nkey_sequence = \"Q\"\n"
+	if err := os.WriteFile(path, []byte(override), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	km, err = LoadKeymap(path, PresetSpotifyPlayer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a, _ := km.Lookup("n"); a != ActNextTrack {
+		t.Fatalf("keymap.toml without preset: n = %q, want spotify-player's NextTrack", a)
+	}
+	if a, _ := km.Lookup("Q"); a != ActQuit {
+		t.Fatalf("override not applied: Q = %q", a)
+	}
+
+	// An explicit preset in keymap.toml wins over the layout's.
+	if err := os.WriteFile(path, []byte("preset = \"tidalt\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	km, err = LoadKeymap(path, PresetSpotifyPlayer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a, _ := km.Lookup("."); a != ActNextTrack {
+		t.Fatalf("explicit tidalt preset: . = %q, want NextTrack", a)
+	}
+
+	// A broken keymap.toml still falls back to the layout's preset.
+	if err := os.WriteFile(path, []byte("preset = \"emacs\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	km, err = LoadKeymap(path, PresetSpotifyPlayer)
+	if err == nil {
+		t.Fatal("broken file should report an error")
+	}
+	if a, _ := km.Lookup("n"); a != ActNextTrack {
+		t.Fatalf("broken file, spotify-player layout: n = %q, want NextTrack", a)
 	}
 }
