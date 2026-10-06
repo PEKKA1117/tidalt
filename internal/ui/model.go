@@ -391,7 +391,7 @@ func InitialModel(ctx context.Context, client *tidal.Client, s *store.SecretsSto
 		store:         s,
 		player:        p,
 		searchInput:   ti,
-		section:       SecQueue,
+		section:       startSection(appCfg.Layout),
 		focusMain:     true,
 		volume:        vol,
 		currentDevice: currentDevice,
@@ -450,7 +450,7 @@ func ClientModel(ctx context.Context, client *tidal.Client, s *store.SecretsStor
 		store:         s,
 		player:        p,
 		searchInput:   ti,
-		section:       SecQueue,
+		section:       startSection(appCfg.Layout),
 		focusMain:     true,
 		volume:        vol,
 		currentDevice: currentDevice,
@@ -1333,8 +1333,11 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.tracksOrder = tracks
 			m.shuffleMode = ShuffleOff
 			m.applyShuffle()
-			m.jumpToQueue()
-			m.cursor = 0
+			// Fill the queue without switching pages: the user may be on the
+			// Library start page, or have moved on before favorites arrived.
+			if m.section == SecQueue {
+				m.cursor = 0
+			}
 			_ = m.store.SavePlaylist(m.tracks)
 		}
 		m.pushState()

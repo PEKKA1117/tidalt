@@ -18,12 +18,22 @@ type Layout struct {
 	PlaybackTop bool // playback window above the panes instead of below
 	HideSidebar bool // no sidebar; pages are reached by key or palette
 	TrackTable  bool // track lists as a table: # · Title · Artist · Album · Time
+	// StartLibrary opens tidalt on the Library page instead of the Queue.
+	StartLibrary bool
+}
+
+// startSection is the page tidalt opens on.
+func startSection(l Layout) Section {
+	if l.StartLibrary {
+		return SecLibrary
+	}
+	return SecQueue
 }
 
 // layoutPresets are the values `[layout] preset` accepts.
 var layoutPresets = map[string]Layout{
 	PresetTidalt:        {},
-	PresetSpotifyPlayer: {PlaybackTop: true, HideSidebar: true, TrackTable: true},
+	PresetSpotifyPlayer: {PlaybackTop: true, HideSidebar: true, TrackTable: true, StartLibrary: true},
 }
 
 // AppConfig is app.toml: settings that are not key bindings.
@@ -53,6 +63,7 @@ type appConfigFile struct {
 		PlaybackWindowPosition string `toml:"playback_window_position"`
 		Sidebar                *bool  `toml:"sidebar"`
 		TrackTable             *bool  `toml:"track_table"`
+		StartPage              string `toml:"start_page"`
 	} `toml:"layout"`
 	Queue struct {
 		FollowIdleSec *int `toml:"follow_idle_sec"`
@@ -92,6 +103,15 @@ func ParseAppConfig(data []byte) (AppConfig, error) {
 	}
 	if l.TrackTable != nil {
 		layout.TrackTable = *l.TrackTable
+	}
+	switch strings.ToLower(l.StartPage) {
+	case "":
+	case "queue":
+		layout.StartLibrary = false
+	case "library":
+		layout.StartLibrary = true
+	default:
+		return AppConfig{}, fmt.Errorf("start_page = %q: want \"Queue\" or \"Library\"", l.StartPage)
 	}
 	followIdle := defaultFollowIdle
 	if sec := f.Queue.FollowIdleSec; sec != nil {
