@@ -71,7 +71,8 @@ favorite albums side by side on one page, as in spotify-player.
 - **Loading:** opening the page loads whichever of the three lists has not been
   loaded yet; an empty list says so in its column ("No playlists.", "No
   favorite artists.", "No favorite albums.").
-- **Narrow terminals:** below 60 columns the page shows only the focused
+- **Narrow terminals:** when the main pane (the screen minus the sidebar) is
+  narrower than 60 columns, the page shows only the focused
   column, full width, with `Tab` still cycling.
 - Track actions (`g a`, `Z`, …) have no selected track here and act on the
   playing track, if any.
