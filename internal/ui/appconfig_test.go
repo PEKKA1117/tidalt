@@ -22,7 +22,7 @@ func TestParseAppConfigSpotifyPreset(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := Layout{PlaybackTop: true, HideSidebar: true, TrackTable: true}
+	want := Layout{PlaybackTop: true, HideSidebar: true, TrackTable: true, StartLibrary: true}
 	if cfg.Layout != want {
 		t.Fatalf("spotify-player layout = %+v, want %+v", cfg.Layout, want)
 	}
@@ -38,7 +38,7 @@ sidebar = true
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := Layout{TrackTable: true}
+	want := Layout{TrackTable: true, StartLibrary: true}
 	if cfg.Layout != want {
 		t.Fatalf("layout = %+v, want %+v", cfg.Layout, want)
 	}

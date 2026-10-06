@@ -23,6 +23,7 @@ const (
 	SecMixes   // Daily Mixes
 	SecSearch
 	SecSettings // theme picker
+	SecLibrary  // playlists, artists and albums side by side; no sidebar entry
 )
 
 // sidebarEntry is one navigable row in the sidebar. A group header (label only)
@@ -178,6 +179,8 @@ func sectionTitle(sec Section) string {
 		return "SEARCH"
 	case SecSettings:
 		return "THEMES"
+	case SecLibrary:
+		return "LIBRARY"
 	default:
 		return ""
 	}

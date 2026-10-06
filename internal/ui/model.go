@@ -173,6 +173,11 @@ type Model struct {
 	detailCursor int
 	detailFocus  bool
 
+	// Library page (SecLibrary): the focused column and each column's own
+	// cursor, kept across visits.
+	libFocus  int
+	libCursor [libColumns]int
+
 	// Hybrid queue/playlist model. queueSource describes the queue's origin
 	// ("playlist:<name>", "radio", or ""); queuePlaylistUUID is the saved
 	// playlist it was loaded from (if any); queueDirty marks unsaved edits.
@@ -386,7 +391,7 @@ func InitialModel(ctx context.Context, client *tidal.Client, s *store.SecretsSto
 		store:         s,
 		player:        p,
 		searchInput:   ti,
-		section:       SecQueue,
+		section:       startSection(appCfg.Layout),
 		focusMain:     true,
 		volume:        vol,
 		currentDevice: currentDevice,
@@ -445,7 +450,7 @@ func ClientModel(ctx context.Context, client *tidal.Client, s *store.SecretsStor
 		store:         s,
 		player:        p,
 		searchInput:   ti,
-		section:       SecQueue,
+		section:       startSection(appCfg.Layout),
 		focusMain:     true,
 		volume:        vol,
 		currentDevice: currentDevice,
@@ -1328,8 +1333,11 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.tracksOrder = tracks
 			m.shuffleMode = ShuffleOff
 			m.applyShuffle()
-			m.jumpToQueue()
-			m.cursor = 0
+			// Fill the queue without switching pages: the user may be on the
+			// Library start page, or have moved on before favorites arrived.
+			if m.section == SecQueue {
+				m.cursor = 0
+			}
 			_ = m.store.SavePlaylist(m.tracks)
 		}
 		m.pushState()
@@ -1970,6 +1978,17 @@ func (m *Model) footerKeyBar(t Theme, w int) string {
 			{m.keyHint(ActOpenCommandHelp), "Help"},
 			{m.keyHint(ActQuit), "Quit"},
 		}
+	case SecLibrary:
+		base = [][2]string{
+			{"j/k", "Move"},
+			{keyTab, "Column"},
+			{"↵", "Open"},
+			{m.keyHint(ActSearch), "Find"},
+			{m.keyHint(ActPreviousPage), "Back"},
+			{m.keyHint(ActOpenCommandPalette), "Command"},
+			{m.keyHint(ActOpenCommandHelp), "Help"},
+			{m.keyHint(ActQuit), "Quit"},
+		}
 	case SecSettings:
 		base = [][2]string{
 			{"j/k", "Preview"}, {"↵", "Apply"}, {"t", "Cycle"}, {"Esc", "Cancel"}, {m.keyHint(ActQuit), "Quit"},
@@ -2043,6 +2062,8 @@ func (m *Model) renderMain(t Theme, w, h int) string {
 		return m.renderFavArtistsPane(t, w, h)
 	case SecFavAlbums:
 		return m.renderFavAlbumsPane(t, w, h)
+	case SecLibrary:
+		return m.renderLibraryPane(t, w, h)
 	case SecHistory:
 		return m.renderHistoryPane(t, w, h)
 	case SecSettings:

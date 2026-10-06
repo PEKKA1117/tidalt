@@ -80,6 +80,7 @@ When you type the first key of a chord, the footer shows that key followed by
 | `PageSelectNextOrScrollDown` | Page down | `PgDn` | `PgDn`, `C-f` |
 | `PageSelectPreviousOrScrollUp` | Page up | `PgUp` | `PgUp`, `C-b` |
 | `Queue` | Queue page | `z` | `z` |
+| `LibraryPage` | Library: playlists, artists and albums side by side ([Layout](layout.md#library-page)) | `g l` | `g l` |
 | `LikedTrackPage` | Favorite songs | `g y` | `g y` |
 | `RecentlyPlayedTrackPage` | Recently played | `g r` | `g r` |
 | `MixesPage` | Daily mixes | `g m` | `g m` |

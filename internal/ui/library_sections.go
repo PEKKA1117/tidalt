@@ -208,27 +208,7 @@ func (m *Model) renderPlaylistsPane(t Theme, w, h int) string {
 	idxW := min(max(w/3, 22), 30)
 	detailW := w - idxW
 
-	idxRows := make([]string, 0, len(m.playlists))
-	for i := range m.playlists {
-		pl := m.playlists[i]
-		sub := fmt.Sprintf("%d tracks", pl.NumberOfTracks)
-		cur := "  "
-		nameStyle := t.Row
-		if !m.detailFocus && i == m.cursor {
-			cur = t.RowPlaying.Render("› ")
-			nameStyle = t.RowPlaying
-		}
-		name := truncateStr(cur+nameStyle.Render(pl.Title), idxW-2)
-		if !m.detailFocus && i == m.cursor {
-			idxRows = append(idxRows, t.RowSel.Width(idxW-2).Render(stripANSI(name)))
-		} else {
-			idxRows = append(idxRows, name)
-		}
-		idxRows = append(idxRows, t.RowFaint.Render("    "+sub))
-	}
-	if len(idxRows) == 0 {
-		idxRows = append(idxRows, t.RowDim.Render("No playlists."))
-	}
+	idxRows := playlistRows(t, m.playlists, m.cursor, !m.detailFocus, idxW-2)
 	indexPanel := renderListPanel(t, "PLAYLISTS", !m.detailFocus, idxRows, m.cursor*2, idxW, h)
 
 	title := "SELECT A PLAYLIST"
@@ -286,56 +266,13 @@ func (m *Model) renderFavSongsPane(t Theme, w, h int) string {
 
 // renderFavArtistsPane lists favorited artists.
 func (m *Model) renderFavArtistsPane(t Theme, w, h int) string {
-	innerW := max(w-2, 1)
-	rows := make([]string, 0, len(m.favArtists))
-	for i := range m.favArtists {
-		a := m.favArtists[i]
-		cur := "  "
-		style := t.Row
-		if m.focusMain && i == m.cursor {
-			cur = t.RowPlaying.Render("› ")
-			style = t.RowPlaying
-		}
-		line := truncateStr(cur+t.RowDim.Render("◎ ")+style.Render(a.Name), innerW)
-		if m.focusMain && i == m.cursor {
-			rows = append(rows, t.RowSel.Width(innerW).Render(stripANSI(line)))
-		} else {
-			rows = append(rows, line)
-		}
-	}
-	if len(rows) == 0 {
-		rows = append(rows, t.RowDim.Render("No favorite artists."))
-	}
+	rows := artistRows(t, m.favArtists, m.cursor, m.focusMain, max(w-2, 1))
 	return renderListPanel(t, "ARTISTS", m.focusMain, rows, m.cursor, w, h)
 }
 
 // renderFavAlbumsPane lists favorited albums.
 func (m *Model) renderFavAlbumsPane(t Theme, w, h int) string {
-	innerW := max(w-2, 1)
-	rows := make([]string, 0, len(m.favAlbums))
-	for i := range m.favAlbums {
-		a := m.favAlbums[i]
-		year := ""
-		if len(a.ReleaseDate) >= 4 {
-			year = " (" + a.ReleaseDate[:4] + ")"
-		}
-		cur := "  "
-		style := t.Row
-		if m.focusMain && i == m.cursor {
-			cur = t.RowPlaying.Render("› ")
-			style = t.RowPlaying
-		}
-		meta := t.RowFaint.Render(year + " · " + strconv.Itoa(a.NumberOfTracks) + " tracks")
-		line := truncateStr(cur+t.RowDim.Render("⊞ ")+style.Render(a.Title)+meta, innerW)
-		if m.focusMain && i == m.cursor {
-			rows = append(rows, t.RowSel.Width(innerW).Render(stripANSI(line)))
-		} else {
-			rows = append(rows, line)
-		}
-	}
-	if len(rows) == 0 {
-		rows = append(rows, t.RowDim.Render("No favorite albums."))
-	}
+	rows := albumRows(t, m.favAlbums, m.cursor, m.focusMain, max(w-2, 1))
 	return renderListPanel(t, "ALBUMS", m.focusMain, rows, m.cursor, w, h)
 }
 
@@ -349,4 +286,76 @@ func (m *Model) renderHistoryPane(t Theme, w, h int) string {
 		artist:  true,
 		empty:   "Nothing played yet this session.",
 	}, w, h)
+}
+
+// listRowStyle returns the cursor marker and name style for a list row: the
+// accent "›" marker when the row is under the cursor of the focused list.
+func listRowStyle(t Theme, on bool) (cur string, style lipgloss.Style) {
+	if on {
+		return t.RowPlaying.Render("› "), t.RowPlaying
+	}
+	return "  ", t.Row
+}
+
+// selBand wraps a row under the focused cursor in the selection band.
+func selBand(t Theme, line string, on bool, innerW int) string {
+	if on {
+		return t.RowSel.Width(innerW).Render(stripANSI(line))
+	}
+	return line
+}
+
+// playlistRows builds the playlist list: two lines per playlist (title, then
+// its track count). sel draws the selection band on the cursor row; the
+// cursor row's first line is at index cursor*2.
+func playlistRows(t Theme, pls []tidal.Playlist, cursor int, sel bool, innerW int) []string {
+	rows := make([]string, 0, 2*len(pls))
+	for i := range pls {
+		on := sel && i == cursor
+		cur, style := listRowStyle(t, on)
+		name := truncateStr(cur+style.Render(pls[i].Title), innerW)
+		rows = append(rows, selBand(t, name, on, innerW),
+			t.RowFaint.Render(fmt.Sprintf("    %d tracks", pls[i].NumberOfTracks)))
+	}
+	if len(rows) == 0 {
+		rows = append(rows, t.RowDim.Render("No playlists."))
+	}
+	return rows
+}
+
+// artistRows builds the favorite-artists list, one row per artist.
+func artistRows(t Theme, artists []tidal.Artist, cursor int, sel bool, innerW int) []string {
+	rows := make([]string, 0, len(artists))
+	for i := range artists {
+		on := sel && i == cursor
+		cur, style := listRowStyle(t, on)
+		line := truncateStr(cur+t.RowDim.Render("◎ ")+style.Render(artists[i].Name), innerW)
+		rows = append(rows, selBand(t, line, on, innerW))
+	}
+	if len(rows) == 0 {
+		rows = append(rows, t.RowDim.Render("No favorite artists."))
+	}
+	return rows
+}
+
+// albumRows builds the favorite-albums list: title, release year and track
+// count on one row per album.
+func albumRows(t Theme, albums []tidal.Album, cursor int, sel bool, innerW int) []string {
+	rows := make([]string, 0, len(albums))
+	for i := range albums {
+		a := albums[i]
+		year := ""
+		if len(a.ReleaseDate) >= 4 {
+			year = " (" + a.ReleaseDate[:4] + ")"
+		}
+		on := sel && i == cursor
+		cur, style := listRowStyle(t, on)
+		meta := t.RowFaint.Render(year + " · " + strconv.Itoa(a.NumberOfTracks) + " tracks")
+		line := truncateStr(cur+t.RowDim.Render("⊞ ")+style.Render(a.Title)+meta, innerW)
+		rows = append(rows, selBand(t, line, on, innerW))
+	}
+	if len(rows) == 0 {
+		rows = append(rows, t.RowDim.Render("No favorite albums."))
+	}
+	return rows
 }

@@ -27,6 +27,8 @@ func (m *Model) activeList() (labels []string, cursor *int) {
 	switch m.section {
 	case SecSearch, SecSettings:
 		return nil, nil
+	case SecLibrary:
+		return m.libraryLabels(m.libFocus), &m.libCursor[m.libFocus]
 	case SecFavSongs:
 		return trackLabels(m.favSongs), &m.cursor
 	case SecHistory:

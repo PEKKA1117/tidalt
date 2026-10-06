@@ -51,6 +51,7 @@ const (
 	ActBrowseUserPlaylists       Action = "BrowseUserPlaylists"
 	ActBrowseUserFollowedArtists Action = "BrowseUserFollowedArtists"
 	ActBrowseUserSavedAlbums     Action = "BrowseUserSavedAlbums"
+	ActLibraryPage               Action = "LibraryPage"
 	ActSwitchTheme               Action = "SwitchTheme"
 	ActPreviousPage              Action = "PreviousPage"
 
@@ -129,6 +130,7 @@ var actions = []struct {
 	{ActBrowseUserPlaylists, groupPages, "Playlists"},
 	{ActBrowseUserFollowedArtists, groupPages, "Favorite artists"},
 	{ActBrowseUserSavedAlbums, groupPages, "Favorite albums"},
+	{ActLibraryPage, groupPages, "Library"},
 	{ActSwitchTheme, groupPages, "Theme picker"},
 	{ActPreviousPage, groupPages, "Previous page"},
 
@@ -202,6 +204,7 @@ var presets = map[string][]binding{
 		{"u p", ActBrowseUserPlaylists},
 		{"u a", ActBrowseUserFollowedArtists},
 		{"u A", ActBrowseUserSavedAlbums},
+		{"g l", ActLibraryPage},
 		{"backspace", ActPreviousPage},
 
 		{"o", ActShowActionsOnSelectedItem},
@@ -250,6 +253,7 @@ var presets = map[string][]binding{
 		{"u p", ActBrowseUserPlaylists},
 		{"u a", ActBrowseUserFollowedArtists},
 		{"u A", ActBrowseUserSavedAlbums},
+		{"g l", ActLibraryPage},
 		{"T", ActSwitchTheme},
 		{"backspace", ActPreviousPage},
 		{"ctrl+q", ActPreviousPage},

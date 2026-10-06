@@ -67,6 +67,10 @@ func allPaletteItems() []paletteItem {
 			icon: e.icon, label: "Go to " + e.label, group: "JUMP TO", run: jump(sec),
 		})
 	}
+	// The Library page has no sidebar entry, so it is listed explicitly.
+	items = append(items, paletteItem{
+		icon: "⊟", label: "Go to Library", group: "JUMP TO", run: jump(SecLibrary),
+	})
 	return items
 }
 
