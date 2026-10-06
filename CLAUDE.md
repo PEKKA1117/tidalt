@@ -9,6 +9,16 @@
 - **Build**: `go build ./...`
 - **CGO**: required — the player package links against libasound (`-lasound`)
 
+## Development approach: tech-lead
+
+The primary session works as a **tech-lead**, following the `tech-lead` skill vendored at `.claude/skills/tech-lead/SKILL.md` (from [akunzai/agent-skills](https://github.com/akunzai/agent-skills/blob/main/skills/tech-lead/SKILL.md) @ `50117a94d9d7`, MIT, see its `LICENSE`). Read it, and its `references/brief-elements.md`, before starting any non-trivial dev or fix:
+
+- Stay in the primary session for a few-line or single-file mechanical edit and for architecture decisions; delegate anything larger to implementer subagents
+- Slice the work (files each slice may touch, parallel/serial, durability), confirm parallelism and its cap with the user, isolate each slice in its own git worktree and branch, brief one implementer per slice, then accept, integrate and clean up in the primary session
+- Tests, builds and lint run in the primary session, which reads their output itself
+
+It combines with SDD + TDD below as follows: the spec (step 1 of SDD) is written or approved in the primary session before slicing, and is quoted in every brief; each brief's acceptance requires the red → green → refactor sequence, the failing-test evidence, and the tooling checks from "Build & tooling"; at acceptance the tech-lead verifies the test was written first and fails without the change, and that the spec and code agree.
+
 ## Development workflow: SDD + TDD
 
 Every feature and every bug fix, however small, follows spec-driven development (SDD) and then test-driven development (TDD), in this order:
