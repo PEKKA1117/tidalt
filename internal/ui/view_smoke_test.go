@@ -66,23 +66,28 @@ func TestViewRendersAllSectionsAndSizes(t *testing.T) {
 	overlays := []Overlay{OverlayNone, OverlayDeviceSelect, OverlayCommandPalette, OverlayActionSheet, OverlayHelp}
 	sizes := [][2]int{{120, 40}, {80, 24}, {60, 20}, {40, 12}, {30, 10}, {20, 6}, {1, 1}, {0, 0}}
 
-	for _, sec := range sections {
-		for _, ov := range overlays {
-			for _, sz := range sizes {
-				m := newSmokeModel()
-				m.section = sec
-				m.overlay = ov
-				m.width, m.height = sz[0], sz[1]
-				if ov == OverlayActionSheet && len(m.tracks) > 0 {
-					tr := m.tracks[0]
-					m.sheetTrack = &tr
+	layouts := []Layout{{}, {PlaybackTop: true, HideSidebar: true, TrackTable: true}}
+
+	for _, layout := range layouts {
+		for _, sec := range sections {
+			for _, ov := range overlays {
+				for _, sz := range sizes {
+					m := newSmokeModel()
+					m.layout = layout
+					m.section = sec
+					m.overlay = ov
+					m.width, m.height = sz[0], sz[1]
+					if ov == OverlayActionSheet && len(m.tracks) > 0 {
+						tr := m.tracks[0]
+						m.sheetTrack = &tr
+					}
+					if ov == OverlayCommandPalette {
+						m.openCommandPalette()
+					}
+					// Should not panic.
+					out := m.View()
+					_ = out
 				}
-				if ov == OverlayCommandPalette {
-					m.openCommandPalette()
-				}
-				// Should not panic.
-				out := m.View()
-				_ = out
 			}
 		}
 	}

@@ -131,7 +131,8 @@ The table below is the default `tidalt` preset. Press `?` in the app for the
 bindings actually in effect. Key bindings are configurable, and a
 [spotify-player](https://github.com/aome510/spotify-player)-style preset
 (`n`/`p` tracks, `g y`/`u p` page chords, `+`/`-` volume, …) is built in —
-see [Key bindings](docs/keymap.md).
+see [Key bindings](docs/keymap.md). The matching layout (playback bar on top,
+no sidebar, track table) is one line in `app.toml` — see [Layout](docs/layout.md).
 
 | Key                | Action                                                        |
 | ------------------ | ------------------------------------------------------------- |
@@ -159,6 +160,7 @@ see [Key bindings](docs/keymap.md).
 | `9` / `0`          | Volume down / up 5%                                           |
 | `c`                | Copy the current track link to the clipboard                  |
 | `d`                | Open the output device selector                               |
+| `Backspace`        | Back to the previous section                                  |
 | `Esc`              | Close an overlay / back out of the artist view / refocus the sidebar |
 | `q` / `Ctrl+C`     | Quit                                                          |
 
@@ -256,6 +258,7 @@ This fallback only engages on a genuine format refusal. Transient failures — s
 | OAuth2 session             | System keychain or `~/.config/tidalt/secrets` (age-encrypted) |
 | Volume & device preference | `~/.local/share/tidalt/tidal-cache.db`                        |
 | Key bindings               | `~/.config/tidalt/keymap.toml` (optional)                     |
+| Layout                     | `~/.config/tidalt/app.toml` (optional)                        |
 | Track metadata cache       | Same database                                                 |
 
 ---
@@ -270,6 +273,7 @@ This fallback only engages on a genuine format refusal. Transient failures — s
 - [MPRIS2 support](docs/mpris2.md)
 - [Importing from Spotify](docs/spotify-import.md)
 - [Key bindings & the spotify-player preset](docs/keymap.md)
+- [Layout (`app.toml`)](docs/layout.md)
 - [DAC compatibility](docs/dac-compatibility.md)
 - [Media keys & MPRIS2 setup](docs/media-keys.md)
 - [Browser URL handler troubleshooting](docs/browser-url-handler.md)

@@ -132,6 +132,11 @@ type Model struct {
 	// preMuteVolume is the level Mute restores.
 	preMuteVolume float64
 
+	// layout is the screen arrangement from app.toml; pageHistory holds the
+	// sections PreviousPage returns to, most recent last.
+	layout      Layout
+	pageHistory []Section
+
 	// Artist view — the selected artist's albums plus two synthetic quick-play
 	// rows ("Play all tracks", "Top tracks"). Reached from the action sheet.
 	artistID      int // 0 = none
@@ -288,6 +293,19 @@ type Model struct {
 	previewPalette *Palette
 }
 
+// configErrText reports config files that could not be read in the status
+// line; tidalt carries on with the defaults for them.
+func configErrText(keymapErr, appCfgErr error) string {
+	var parts []string
+	if keymapErr != nil {
+		parts = append(parts, "keymap: "+keymapErr.Error())
+	}
+	if appCfgErr != nil {
+		parts = append(parts, "app config: "+appCfgErr.Error())
+	}
+	return strings.Join(parts, "; ")
+}
+
 // loadTheme resolves the persisted theme name (or the default) into the model's
 // palette/theme fields. Called from the constructors.
 func loadTheme(s *store.SecretsStore) (name string, pal Palette, th Theme) {
@@ -353,10 +371,8 @@ func InitialModel(ctx context.Context, client *tidal.Client, s *store.SecretsSto
 	themeName, palette, theme := loadTheme(s)
 
 	keymap, keymapErr := LoadKeymap(KeymapPath())
-	errText := ""
-	if keymapErr != nil {
-		errText = "keymap: " + keymapErr.Error()
-	}
+	appCfg, appCfgErr := LoadAppConfig(AppConfigPath())
+	errText := configErrText(keymapErr, appCfgErr)
 
 	return Model{
 		ctx:           ctx,
@@ -381,6 +397,7 @@ func InitialModel(ctx context.Context, client *tidal.Client, s *store.SecretsSto
 		palette:       palette,
 		theme:         theme,
 		keymap:        keymap,
+		layout:        appCfg.Layout,
 		errText:       errText,
 	}
 }
@@ -411,10 +428,8 @@ func ClientModel(ctx context.Context, client *tidal.Client, s *store.SecretsStor
 	themeName, palette, theme := loadTheme(s)
 
 	keymap, keymapErr := LoadKeymap(KeymapPath())
-	errText := ""
-	if keymapErr != nil {
-		errText = "keymap: " + keymapErr.Error()
-	}
+	appCfg, appCfgErr := LoadAppConfig(AppConfigPath())
+	errText := configErrText(keymapErr, appCfgErr)
 
 	return Model{
 		ctx:           ctx,
@@ -439,6 +454,7 @@ func ClientModel(ctx context.Context, client *tidal.Client, s *store.SecretsStor
 		palette:       palette,
 		theme:         theme,
 		keymap:        keymap,
+		layout:        appCfg.Layout,
 		errText:       errText,
 	}
 }
@@ -1301,7 +1317,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.tracksOrder = tracks
 			m.shuffleMode = ShuffleOff
 			m.applyShuffle()
-			m.section = SecQueue
+			m.jumpToQueue()
 			m.cursor = 0
 			_ = m.store.SavePlaylist(m.tracks)
 		}
@@ -1332,7 +1348,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.queueDirty = false
 		// Don't yank focus away if the user is in the Search section.
 		if m.section != SecSearch {
-			m.section = SecQueue
+			m.jumpToQueue()
 			m.showArtist = false
 			m.focusMain = true
 			m.searchInput.Blur()
@@ -1360,7 +1376,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.tracksOrder = msg
 		m.shuffleMode = ShuffleOff
 		m.applyShuffle()
-		m.section = SecQueue
+		m.jumpToQueue()
 		m.showArtist = false
 		m.focusMain = true
 		m.cursor = 0
@@ -1448,7 +1464,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.tracksOrder = msg.tracks
 		m.shuffleMode = ShuffleOff
 		m.applyShuffle()
-		m.section = SecQueue
+		m.jumpToQueue()
 		m.showArtist = false
 		m.focusMain = true
 		m.searchInput.Blur()
@@ -1590,7 +1606,11 @@ func (m Model) View() string {
 		body = lipgloss.JoinHorizontal(lipgloss.Top, sidebar, gap, main)
 	}
 
-	parts := []string{body}
+	var parts []string
+	if m.layout.PlaybackTop {
+		parts = append(parts, m.renderNowPlayingBar(t, m.width))
+	}
+	parts = append(parts, body)
 	switch {
 	case m.findActive:
 		parts = append(parts, t.Row.Render(" "+truncateStr(m.findInput.View(), m.width-2)))
@@ -1599,10 +1619,10 @@ func (m Model) View() string {
 	case m.errText != "":
 		parts = append(parts, t.Err.Render(" ! "+truncateStr(m.errText, m.width-3)))
 	}
-	parts = append(parts,
-		m.renderNowPlayingBar(t, m.width),
-		m.footerKeyBar(t, m.width),
-	)
+	if !m.layout.PlaybackTop {
+		parts = append(parts, m.renderNowPlayingBar(t, m.width))
+	}
+	parts = append(parts, m.footerKeyBar(t, m.width))
 
 	view := lipgloss.JoinVertical(lipgloss.Left, parts...)
 
@@ -1885,7 +1905,7 @@ func (m *Model) coverBoxRect() (col, row, panelW, imgRows int, ok bool) {
 	listW := mainW - coverW
 	pw, ir := m.queueCoverDims(coverW, m.bodyHeight())
 	col = mainLeft + listW + 1 /* cover panel left border */ + 1 /* 1-indexed */
-	row = 1 /* panel top border */ + 1                           /* 1-indexed */
+	row = m.bodyTop() + 1 /* panel top border */ + 1             /* 1-indexed */
 	return col, row, pw, ir, true
 }
 
@@ -1899,9 +1919,13 @@ func (m *Model) footerKeyBar(t Theme, w int) string {
 	if m.focusMain {
 		find = [2]string{m.keyHint(ActSearch), "Find"}
 	}
+	pane := [2]string{"h/l", "Pane"}
+	if m.layout.HideSidebar {
+		pane = [2]string{m.keyHint(ActPreviousPage), "Back"}
+	}
 	base := [][2]string{
 		{"j/k", "Move"},
-		{"h/l", "Pane"},
+		pane,
 		{"↵", "Play"},
 		{m.keyHint(ActResumePause), "Pause"},
 		{m.keyHint(ActShowActionsOnSelectedItem), "Actions"},
@@ -1981,7 +2005,7 @@ func (m *Model) renderOverlay(t Theme, base string) string {
 		// sidebar, vertically tracking the cursor but clamped on-screen.
 		sidebarW, _ := m.layoutDims()
 		x = min(sidebarW+4, max(m.width-pw-1, 0))
-		y = min(max(m.cursor+2, 1), max(m.height-ph-2, 1))
+		y = min(max(m.bodyTop()+m.cursor+2, 1), max(m.height-ph-2, 1))
 	}
 	return PlaceOverlay(x, y, popup, dim(t, base))
 }

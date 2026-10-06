@@ -251,7 +251,13 @@ func (m *Model) renderNowPlayingBar(t Theme, w int) string {
 	if m.currentTrack == nil {
 		empty := t.RowDim.Render("  Nothing playing")
 		body := empty + strings.Repeat(" ", max(inner-lipgloss.Width(empty), 0))
-		return renderPanel(t, "", false, w, 3, body)
+		// On top the window keeps its full height, so the panes below it
+		// don't jump when playback starts.
+		h := 3
+		if m.layout.PlaybackTop {
+			h = nowBarH
+		}
+		return renderPanel(t, "", false, w, h, body)
 	}
 
 	eq := miniEQ(t, m.barHeights, m.isPlaying)
@@ -366,4 +372,80 @@ func miniEQ(t Theme, heights [numBars]int, isPlaying bool) string {
 		sb.WriteRune(levels[l])
 	}
 	return style.Render(sb.String())
+}
+
+// trackTable column widths that do not depend on the panel width.
+const (
+	tableGutterW = 3 // " ", cursor glyph, " "
+	tableIndexW  = 4 // "%3d "
+	tableFavW    = 2 // " ♥"
+	tableTimeW   = 6 // right-aligned m:ss
+	tableGaps    = 2 // between title/artist and artist/album
+)
+
+// trackTableCols splits a row of width w into the title, artist and album
+// column widths (40 / 30 / 30 of what the fixed columns leave).
+func trackTableCols(w int) (title, artist, album int) {
+	room := max(w-tableGutterW-tableIndexW-tableFavW-tableTimeW-tableGaps, 3)
+	title = max(room*4/10, 1)
+	artist = max(room*3/10, 1)
+	album = max(room-title-artist, 1)
+	return title, artist, album
+}
+
+// cell renders s in style, truncated or padded to exactly w columns.
+func cell(style lipgloss.Style, s string, w int) string {
+	s = truncateStr(s, w)
+	return style.Render(s) + strings.Repeat(" ", max(w-lipgloss.Width(s), 0))
+}
+
+// renderTrackTableHeader renders the column headings that line up with
+// renderTrackTableRow at the same width.
+func renderTrackTableHeader(t Theme, w int) string {
+	tw, aw, bw := trackTableCols(w)
+	h := t.CmdGroup
+	line := strings.Repeat(" ", tableGutterW) +
+		cell(h, fmt.Sprintf("%3s ", "#"), tableIndexW) +
+		cell(h, "TITLE", tw) + " " +
+		cell(h, "ARTIST", aw) + " " +
+		cell(h, "ALBUM", bw) +
+		strings.Repeat(" ", tableFavW) +
+		h.Render(fmt.Sprintf("%*s", tableTimeW, "TIME"))
+	return truncateStr(line, w)
+}
+
+// renderTrackTableRow renders one track as a table row: cursor glyph, index,
+// title, artist, album, favorite heart and right-aligned duration.
+func renderTrackTableRow(t Theme, tr tidal.Track, o rowOpts) string {
+	cur, curStyle := " ", t.RowFaint
+	titleStyle := t.Row
+	switch {
+	case o.playing:
+		cur, curStyle, titleStyle = "♪", t.RowPlaying, t.RowPlaying
+	case o.selected:
+		cur, curStyle = "›", t.RowPlaying
+	}
+	fav := strings.Repeat(" ", tableFavW)
+	if o.fav {
+		fav = " " + t.Fav.Render("♥")
+	}
+	var dur string
+	if o.duration > 0 {
+		dur = formatTime(float64(o.duration))
+	}
+
+	tw, aw, bw := trackTableCols(o.width)
+	line := " " + curStyle.Render(cur) + " " +
+		cell(t.RowFaint, fmt.Sprintf("%3d ", o.index), tableIndexW) +
+		cell(titleStyle, tr.Title, tw) + " " +
+		cell(t.RowDim, tr.Artist.Name, aw) + " " +
+		cell(t.RowDim, tr.Album.Title, bw) +
+		fav +
+		t.RowDim.Render(fmt.Sprintf("%*s", tableTimeW, dur))
+	line = truncateStr(line, o.width)
+
+	if o.selected {
+		return t.RowSel.Width(o.width).Render(stripANSI(line))
+	}
+	return line
 }

@@ -106,8 +106,19 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m.routeKey(k)
 }
 
-// routeKey hands a key to the sidebar or the active section.
+// routeKey hands a key to the sidebar or the active section. Without a
+// sidebar, keys that would hand focus to it (h, Esc at the top level) leave
+// focus on the main pane.
 func (m Model) routeKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.layout.HideSidebar {
+		m.focusMain = true
+		next, cmd := m.updateSection(k)
+		if nm, ok := next.(Model); ok {
+			nm.focusMain = true
+			return nm, cmd
+		}
+		return next, cmd
+	}
 	if !m.focusMain {
 		return m.updateSidebar(k)
 	}
@@ -197,6 +208,8 @@ func (m Model) runAction(act Action) (tea.Model, tea.Cmd) {
 		return m.selectSection(SecFavArtists)
 	case ActBrowseUserSavedAlbums:
 		return m.selectSection(SecFavAlbums)
+	case ActPreviousPage:
+		return m.previousPage()
 	default:
 		return m.runTrackAction(act)
 	}
@@ -285,6 +298,57 @@ func (m Model) updateSidebar(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 // selectSection switches to a section, moves focus to the main pane, and fires
 // any data-load command the section needs.
 func (m Model) selectSection(sec Section) (tea.Model, tea.Cmd) {
+	if sec != m.section {
+		m.pushPage(m.section)
+	}
+	return m.showSection(sec)
+}
+
+// maxPageHistory caps how many pages PreviousPage can step back through.
+const maxPageHistory = 50
+
+// pushPage records a section PreviousPage can return to.
+func (m *Model) pushPage(sec Section) {
+	m.pageHistory = append(m.pageHistory, sec)
+	if len(m.pageHistory) > maxPageHistory {
+		m.pageHistory = m.pageHistory[len(m.pageHistory)-maxPageHistory:]
+	}
+}
+
+// jumpToQueue switches to the Queue as a side effect of another action
+// (playing an album lands there), recording history like selectSection does.
+func (m *Model) jumpToQueue() {
+	if m.section != SecQueue {
+		m.pushPage(m.section)
+	}
+	m.section = SecQueue
+}
+
+// previousPage closes the artist drill-down if it is open, otherwise returns
+// to the section shown before the current one.
+func (m Model) previousPage() (tea.Model, tea.Cmd) {
+	if m.showArtist {
+		m.showArtist = false
+		m.artistAlbum = nil
+		m.artistAlbumTracks = nil
+		m.artistAlbumCursor = 0
+		return m, nil
+	}
+	n := len(m.pageHistory)
+	if n == 0 {
+		return m, nil
+	}
+	prev := m.pageHistory[n-1]
+	m.pageHistory = m.pageHistory[:n-1]
+	return m.showSection(prev)
+}
+
+// showSection switches to a section without recording history: moves focus
+// to the main pane and fires any data-load command the section needs.
+func (m Model) showSection(sec Section) (tea.Model, tea.Cmd) {
+	if m.section == SecSettings && sec != SecSettings {
+		m.cancelPreview() // leaving the theme picker by page key reverts its preview
+	}
 	m.section = sec
 	m.showArtist = false
 	m.focusMain = true
@@ -838,7 +902,7 @@ func (m Model) updateArtistAlbum(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		i := m.artistAlbumCursor
 		m.showArtist = false
 		m.artistAlbum = nil
-		m.section = SecQueue
+		m.jumpToQueue()
 		m.sidebarCursor = navIndexOf(SecQueue)
 		cmd := m.playListIntoQueue(tracks, i)
 		return m, cmd
