@@ -91,53 +91,60 @@ func findMatch(labels []string, query string, start, dir int) int {
 	return -1
 }
 
-// updateListMotion handles the vim-style list keys shared by every list
-// context: "/" opens the find prompt, n/N repeat the last find, gg/G jump to
-// the top/bottom. handled is false for any other key (and for non-list
-// contexts), so the caller falls through to the section handler.
+// updateListMotion handles the list actions shared by every list context:
+// find (/), repeat find (n/N), top/bottom (gg/G) and paging, as bound in the
+// keymap. handled is false for any other key (and for non-list contexts), so
+// the caller falls through to the section handler.
 func (m Model) updateListMotion(k tea.KeyMsg) (_ tea.Model, _ tea.Cmd, handled bool) {
 	labels, cursor := m.activeList()
 	if cursor == nil {
 		return m, nil, false
 	}
-	key := k.String()
-	wasG := m.pendingG
-	m.pendingG = false
+	act, ok := m.keys().Lookup(k.String())
+	if !ok {
+		return m, nil, false
+	}
 
-	switch key {
-	case "/":
+	switch act {
+	case ActSearch:
 		m.findInput = textinput.New()
 		m.findInput.Prompt = "/"
 		m.findInput.Focus()
 		m.findActive = true
 		m.findOrigin = *cursor
 		return m, nil, true
-	case "n", "N":
+	case ActFindNext, ActFindPrevious:
 		if m.findQuery == "" {
 			return m, nil, true
 		}
 		dir := 1
-		if key == "N" {
+		if act == ActFindPrevious {
 			dir = -1
 		}
 		if i := findMatch(labels, m.findQuery, *cursor+dir, dir); i >= 0 {
 			*cursor = i
 		}
-	case "G":
+	case ActSelectFirst:
+		*cursor = 0
+	case ActSelectLast:
 		if len(labels) > 0 {
 			*cursor = len(labels) - 1
 		}
-	case "g":
-		if !wasG {
-			m.pendingG = true
-			return m, nil, true
-		}
-		*cursor = 0
+	case ActPageSelectNext:
+		*cursor = max(min(*cursor+m.pageSize(), len(labels)-1), 0)
+	case ActPageSelectPrevious:
+		*cursor = max(*cursor-m.pageSize(), 0)
 	default:
 		return m, nil, false
 	}
 	cmd := m.syncQueueCover()
 	return m, cmd, true
+}
+
+// pageSize is how far PageSelectNext/Previous move: the rows a list panel
+// shows.
+func (m *Model) pageSize() int {
+	return max(m.bodyHeight()-2, 1)
 }
 
 // updateFind handles keys while the find prompt is open. Typing moves the

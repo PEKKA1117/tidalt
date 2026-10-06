@@ -8,6 +8,7 @@ import (
 	"io"
 	"math/rand/v2"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -56,6 +57,7 @@ const (
 	OverlayDeviceSelect
 	OverlayAddToPlaylist
 	OverlayImportSpotify
+	OverlayHelp
 )
 
 //nolint:recvcheck // tea.Model requires value-receiver Init/Update/View; helper methods mutate via pointer receiver
@@ -114,13 +116,21 @@ type Model struct {
 
 	// In-list find (vim "/"): findInput is the prompt, open while findActive.
 	// findQuery is the last committed query that n/N repeat; findOrigin is the
-	// cursor to restore when the prompt is cancelled. pendingG holds the first
-	// "g" of a "gg" motion.
+	// cursor to restore when the prompt is cancelled.
 	findInput  textinput.Model
 	findActive bool
 	findQuery  string
 	findOrigin int
-	pendingG   bool
+
+	// Key bindings: keymap resolves key sequences to actions (nil means the
+	// tidalt preset); pendingKeys holds the keys of a chord typed so far
+	// ("g" of "g y"). helpScroll is the help overlay's first visible row.
+	keymap      *Keymap
+	pendingKeys []string
+	helpScroll  int
+
+	// preMuteVolume is the level Mute restores.
+	preMuteVolume float64
 
 	// Artist view — the selected artist's albums plus two synthetic quick-play
 	// rows ("Play all tracks", "Top tracks"). Reached from the action sheet.
@@ -342,6 +352,12 @@ func InitialModel(ctx context.Context, client *tidal.Client, s *store.SecretsSto
 
 	themeName, palette, theme := loadTheme(s)
 
+	keymap, keymapErr := LoadKeymap(KeymapPath())
+	errText := ""
+	if keymapErr != nil {
+		errText = "keymap: " + keymapErr.Error()
+	}
+
 	return Model{
 		ctx:           ctx,
 		client:        client,
@@ -364,6 +380,8 @@ func InitialModel(ctx context.Context, client *tidal.Client, s *store.SecretsSto
 		themeName:     themeName,
 		palette:       palette,
 		theme:         theme,
+		keymap:        keymap,
+		errText:       errText,
 	}
 }
 
@@ -392,6 +410,12 @@ func ClientModel(ctx context.Context, client *tidal.Client, s *store.SecretsStor
 
 	themeName, palette, theme := loadTheme(s)
 
+	keymap, keymapErr := LoadKeymap(KeymapPath())
+	errText := ""
+	if keymapErr != nil {
+		errText = "keymap: " + keymapErr.Error()
+	}
+
 	return Model{
 		ctx:           ctx,
 		client:        client,
@@ -414,6 +438,8 @@ func ClientModel(ctx context.Context, client *tidal.Client, s *store.SecretsStor
 		themeName:     themeName,
 		palette:       palette,
 		theme:         theme,
+		keymap:        keymap,
+		errText:       errText,
 	}
 }
 
@@ -1866,48 +1892,57 @@ func (m *Model) coverBoxRect() (col, row, panelW, imgRows int, ok bool) {
 // footerKeyBar returns the context-sensitive key hint bar for the current
 // section.
 func (m *Model) footerKeyBar(t Theme, w int) string {
+	if len(m.pendingKeys) > 0 {
+		return renderKeyBar(t, m.chordHint(), w)
+	}
+	find := [2]string{"/", "Search"} // the sidebar's own "/" opens Search
+	if m.focusMain {
+		find = [2]string{m.keyHint(ActSearch), "Find"}
+	}
 	base := [][2]string{
 		{"j/k", "Move"},
 		{"h/l", "Pane"},
 		{"↵", "Play"},
-		{"Space", "Pause"},
-		{"o", "Actions"},
-		{":", "Command"},
-		{"/", "Search"},
-		{"q", "Quit"},
-	}
-	if m.focusMain {
-		base[6] = [2]string{"/", "Find"}
+		{m.keyHint(ActResumePause), "Pause"},
+		{m.keyHint(ActShowActionsOnSelectedItem), "Actions"},
+		{m.keyHint(ActOpenCommandPalette), "Command"},
+		find,
+		{m.keyHint(ActOpenCommandHelp), "Help"},
+		{m.keyHint(ActQuit), "Quit"},
 	}
 	switch m.section {
 	case SecQueue:
 		base = [][2]string{
 			{"j/k", "Move"},
-			{"/", "Find"},
+			{m.keyHint(ActSearch), "Find"},
 			{"↵", "Play"},
 			{"x", "Remove"},
 			{"C", "Clear"},
-			{"S", "Save"},
-			{"o", "Actions"},
-			{":", "Command"},
-			{"q", "Quit"},
+			{m.keyHint(ActSaveQueueAsPlaylist), "Save"},
+			{m.keyHint(ActShowActionsOnSelectedItem), "Actions"},
+			{m.keyHint(ActOpenCommandPalette), "Command"},
+			{m.keyHint(ActOpenCommandHelp), "Help"},
+			{m.keyHint(ActQuit), "Quit"},
 		}
 	case SecSearch:
 		base = [][2]string{
 			{"↵", "Search/Play"},
 			{"j/k", "Move"},
-			{"o", "Actions"},
-			{"f", "Fav"},
-			{"a", "Artist"},
-			{":", "Command"},
-			{"q", "Quit"},
+			{m.keyHint(ActShowActionsOnSelectedItem), "Actions"},
+			{m.keyHint(ActToggleLiked), "Fav"},
+			{m.keyHint(ActGoToArtist), "Artist"},
+			{m.keyHint(ActOpenCommandPalette), "Command"},
+			{m.keyHint(ActOpenCommandHelp), "Help"},
+			{m.keyHint(ActQuit), "Quit"},
 		}
 	case SecSettings:
 		base = [][2]string{
-			{"j/k", "Preview"}, {"↵", "Apply"}, {"t", "Cycle"}, {"Esc", "Cancel"}, {"q", "Quit"},
+			{"j/k", "Preview"}, {"↵", "Apply"}, {"t", "Cycle"}, {"Esc", "Cancel"}, {m.keyHint(ActQuit), "Quit"},
 		}
 	default:
 	}
+	// Drop hints for actions the keymap leaves unbound.
+	base = slices.DeleteFunc(base, func(it [2]string) bool { return it[0] == "" })
 	return renderKeyBar(t, base, w)
 }
 
@@ -1925,6 +1960,8 @@ func (m *Model) renderOverlay(t Theme, base string) string {
 		popup = m.renderAddToPlaylist(t)
 	case OverlayImportSpotify:
 		popup = m.renderImportSpotify(t)
+	case OverlayHelp:
+		popup = m.renderHelp(t)
 	case OverlayActionSheet:
 		popup = m.renderActionSheet(t)
 		anchorCentered = false

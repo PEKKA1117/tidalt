@@ -127,6 +127,12 @@ See [docs/ui.md](docs/ui.md) for a full tour of the interface.
 The interface has two focus zones: the **sidebar** (section navigation) and the
 **main pane** (the selected section's content). `h` / `l` move focus between them.
 
+The table below is the default `tidalt` preset. Press `?` in the app for the
+bindings actually in effect. Key bindings are configurable, and a
+[spotify-player](https://github.com/aome510/spotify-player)-style preset
+(`n`/`p` tracks, `g y`/`u p` page chords, `+`/`-` volume, …) is built in —
+see [Key bindings](docs/keymap.md).
+
 | Key                | Action                                                        |
 | ------------------ | ------------------------------------------------------------- |
 | `j` / `k` (`↓`/`↑`)| Move the cursor                                               |
@@ -134,7 +140,11 @@ The interface has two focus zones: the **sidebar** (section navigation) and the
 | `Enter`            | Open the section / play the selected track / confirm          |
 | `o`                | Open the contextual action sheet for the selected track       |
 | `:` / `Ctrl+P`     | Open the command palette                                      |
-| `/`                | Jump to Search                                                |
+| `/`                | Find in the current list (sidebar: jump to Search)            |
+| `n` / `N`          | Repeat the last find forwards / backwards                     |
+| `gg` / `G`         | Jump to the top / bottom of the list (also `Home` / `End`)    |
+| `PgDn` / `PgUp`    | Move the cursor a page down / up                              |
+| `?`                | Show every key binding                                        |
 | `Space`            | Pause / resume                                                |
 | `←` / `→`          | Seek back / forward 10 seconds                                |
 | `>` / `<`          | Next / previous track                                         |
@@ -245,6 +255,7 @@ This fallback only engages on a genuine format refusal. Transient failures — s
 | -------------------------- | ------------------------------------------------------------- |
 | OAuth2 session             | System keychain or `~/.config/tidalt/secrets` (age-encrypted) |
 | Volume & device preference | `~/.local/share/tidalt/tidal-cache.db`                        |
+| Key bindings               | `~/.config/tidalt/keymap.toml` (optional)                     |
 | Track metadata cache       | Same database                                                 |
 
 ---
@@ -258,6 +269,7 @@ This fallback only engages on a genuine format refusal. Transient failures — s
 - [Client-server architecture & daemon mode](docs/client-server.md)
 - [MPRIS2 support](docs/mpris2.md)
 - [Importing from Spotify](docs/spotify-import.md)
+- [Key bindings & the spotify-player preset](docs/keymap.md)
 - [DAC compatibility](docs/dac-compatibility.md)
 - [Media keys & MPRIS2 setup](docs/media-keys.md)
 - [Browser URL handler troubleshooting](docs/browser-url-handler.md)

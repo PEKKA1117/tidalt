@@ -63,7 +63,7 @@ func TestViewRendersAllSectionsAndSizes(t *testing.T) {
 		SecNowPlaying, SecQueue, SecPlaylists, SecFavSongs, SecFavArtists,
 		SecFavAlbums, SecHistory, SecMixes, SecSearch, SecSettings,
 	}
-	overlays := []Overlay{OverlayNone, OverlayDeviceSelect, OverlayCommandPalette, OverlayActionSheet}
+	overlays := []Overlay{OverlayNone, OverlayDeviceSelect, OverlayCommandPalette, OverlayActionSheet, OverlayHelp}
 	sizes := [][2]int{{120, 40}, {80, 24}, {60, 20}, {40, 12}, {30, 10}, {20, 6}, {1, 1}, {0, 0}}
 
 	for _, sec := range sections {
