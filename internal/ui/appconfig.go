@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 )
@@ -31,11 +32,17 @@ type AppConfig struct {
 	// same key preset when it names none, so one line here sets both.
 	Preset string
 	Layout Layout
+	// FollowIdle is how long the keyboard must be idle on the Queue before
+	// its cursor moves back onto the playing track; 0 turns that off.
+	FollowIdle time.Duration
 }
+
+// defaultFollowIdle is `[queue] follow_idle_sec` when app.toml leaves it unset.
+const defaultFollowIdle = 10 * time.Second
 
 // defaultAppConfig is the configuration without an app.toml.
 func defaultAppConfig() AppConfig {
-	return AppConfig{Preset: PresetTidalt}
+	return AppConfig{Preset: PresetTidalt, FollowIdle: defaultFollowIdle}
 }
 
 // appConfigFile is the on-disk shape of app.toml. Pointer fields tell "unset"
@@ -47,6 +54,9 @@ type appConfigFile struct {
 		Sidebar                *bool  `toml:"sidebar"`
 		TrackTable             *bool  `toml:"track_table"`
 	} `toml:"layout"`
+	Queue struct {
+		FollowIdleSec *int `toml:"follow_idle_sec"`
+	} `toml:"queue"`
 }
 
 // ParseAppConfig reads app.toml contents: the layout preset (tidalt when
@@ -83,7 +93,14 @@ func ParseAppConfig(data []byte) (AppConfig, error) {
 	if l.TrackTable != nil {
 		layout.TrackTable = *l.TrackTable
 	}
-	return AppConfig{Preset: l.Preset, Layout: layout}, nil
+	followIdle := defaultFollowIdle
+	if sec := f.Queue.FollowIdleSec; sec != nil {
+		if *sec < 0 {
+			return AppConfig{}, fmt.Errorf("follow_idle_sec = %d: want 0 (off) or more seconds", *sec)
+		}
+		followIdle = time.Duration(*sec) * time.Second
+	}
+	return AppConfig{Preset: l.Preset, Layout: layout, FollowIdle: followIdle}, nil
 }
 
 // AppConfigPath is where tidalt looks for app.toml:
