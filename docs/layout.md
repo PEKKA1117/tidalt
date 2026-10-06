@@ -36,12 +36,49 @@ track_table = true                 # # · Title · Artist · Album · Time colum
 | `track_table` | `false` | `true` |
 
 Without the sidebar, use the page keys to move between sections (`z` for the
-queue, `g y`, `g r`, `g m`, `g s`, `u p`, `u a`, `u A`) and `Backspace` to go
-back. You can also open the command palette (`:`) and pick "Go to …".
+queue, `g l` for the [library](#library-page), `g y`, `g r`, `g m`, `g s`,
+`u p`, `u a`, `u A`) and `Backspace` to go back. You can also open the command
+palette (`:`) and pick "Go to …".
 
 The track table applies to the Queue, Favorite songs, Recently played, the
 open playlist, and an album opened from the artist view. Its column header stays
 at the top while the list scrolls.
+
+## Library page
+
+`g l` (`LibraryPage`) opens the Library: your playlists, favorite artists and
+favorite albums side by side on one page, as in spotify-player.
+
+```
+╭─ PLAYLISTS ───────────────╮╭─ ARTISTS ──────╮╭─ ALBUMS ──────────────────╮
+│ › Road trip               ││   ◎ Bonobo     ││   ⊞ Migration (2017)      │
+│   Focus · 42 tracks       ││   ◎ Floating … ││   ⊞ Promises (2021)       │
+╰───────────────────────────╯╰────────────────╯╰───────────────────────────╯
+```
+
+- **Columns:** Playlists, Artists and Albums take 40%, 20% and 40% of the width
+  (the Albums column absorbs the rounding). Each column scrolls on its own and
+  keeps its own cursor. Playlist rows show the title and track count; artist
+  and album rows look like the Artists and Albums pages.
+- **Focus:** one column at a time has focus (accent border, selection band).
+  The page opens on the column focused when you last left it — Playlists the
+  first time. `Tab` / `l` / `→` move focus right and `Shift+Tab` / `h` / `←`
+  left, wrapping around. `j`/`k`, the arrows, `g g`/`G`, `PgUp`/`PgDn` and `/`
+  find (`n`/`N`) work in the focused column.
+- **Enter** on a playlist opens it on the Playlists page with its tracks
+  focused; on an artist, the artist view; on an album, its tracks in the queue,
+  as on the Albums page. `Backspace` comes back to the Library.
+- **Loading:** opening the page loads whichever of the three lists has not been
+  loaded yet; an empty list says so in its column ("No playlists.", "No
+  favorite artists.", "No favorite albums.").
+- **Narrow terminals:** below 60 columns the page shows only the focused
+  column, full width, with `Tab` still cycling.
+- Track actions (`g a`, `Z`, …) have no selected track here and act on the
+  playing track, if any.
+
+The page works in either layout. It has no sidebar entry; in the `tidalt`
+layout the sidebar items stay the way to reach each list. The command palette
+lists it as "Go to Library".
 
 ## Following the playing track
 
