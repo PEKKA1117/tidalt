@@ -9,6 +9,20 @@
 - **Build**: `go build ./...`
 - **CGO**: required — the player package links against libasound (`-lasound`)
 
+## Development workflow: SDD + TDD
+
+Every feature and every bug fix, however small, follows spec-driven development (SDD) and then test-driven development (TDD), in this order:
+
+1. **Spec first (SDD)** — before touching code, write or update the spec that states the intended behaviour:
+   - Features: add or update the relevant page in `docs/` (or create a new one) describing the behaviour, inputs/outputs, key bindings/config, and edge cases. Link new pages from `docs/architecture.md` or `README.md` where appropriate
+   - Bug fixes: state the expected vs. actual behaviour and the root cause, and correct the spec in `docs/` if it was wrong or silent on the case
+   - Keep the "Package overview" below in sync when a change alters what a package does
+2. **Red (TDD)** — write a failing `_test.go` test derived from the spec (for a bug: a test that reproduces it). Run `go test ./<pkg>/...` and confirm it fails for the expected reason
+3. **Green** — write the minimal code that makes the test pass
+4. **Refactor** — clean up with the tests green, then run `gofumpt -w .`, `golangci-lint run`, `go build ./...` and `go test ./...`
+
+Tests are table-driven where it fits and live next to the code they cover. Code that can't be unit-tested directly (ALSA/FFmpeg CGO, D-Bus, live Tidal API) is tested through a seam — extract the pure logic (format choice, fallback decisions, parsing, URL building) into a testable function, as `shared.go`/`alsa_fallback_test.go` and `api_test.go` do. Never skip, disable or weaken a test to get green; if a spec change makes a test obsolete, update the test to the new spec.
+
 ## Package overview
 
 ### `cmd/tidalt`
